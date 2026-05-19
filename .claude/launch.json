@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "@boffin/backend", "dev"],
+      "port": 7010
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "@boffin/web", "dev"],
+      "port": 7011
+    }
+  ]
+}

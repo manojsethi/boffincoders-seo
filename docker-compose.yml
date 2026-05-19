@@ -1,0 +1,25 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    restart: unless-stopped
+    shm_size: "1gb"
+    ports:
+      - "11235:11235"
+    environment:
+      CRAWL4AI_API_TOKEN: ""
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mongo-data:

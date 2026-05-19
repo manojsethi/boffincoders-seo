@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+jspm_packages/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.turbo/
+.cache/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env files
+.env
+.env.*
+!.env.example
+*.env.bak
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Test / coverage
+coverage/
+.nyc_output/
+*.lcov
+.vitest-cache/
+playwright-report/
+test-results/
+
+# IDE / editors
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Misc
+*.pid
+*.seed
+*.tgz
+.eslintcache
+.parcel-cache/
+.vercel
+.netlify
+.serverless/
+.fusebox/
+.dynamodb/
+.tern-port
+
+# Local Claude / agent state
+.claude/local/
+.claude/cache/

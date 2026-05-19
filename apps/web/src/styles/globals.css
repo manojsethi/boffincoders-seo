@@ -1,0 +1,186 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+  --color-bg: var(--c-bg);
+  --color-bg-elevated: var(--c-bg-elevated);
+  --color-surface: var(--c-surface);
+  --color-surface-muted: var(--c-surface-muted);
+  --color-surface-hover: var(--c-surface-hover);
+  --color-border: var(--c-border);
+  --color-border-strong: var(--c-border-strong);
+  --color-text: var(--c-text);
+  --color-text-muted: var(--c-text-muted);
+  --color-text-subtle: var(--c-text-subtle);
+  --color-text-onaccent: var(--c-text-on-accent);
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
+  --color-info: var(--c-info);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Dark theme (default) — Linear-inspired */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --c-bg: #08090b;
+  --c-bg-elevated: #0e1014;
+  --c-surface: #0e1014;
+  --c-surface-muted: #131720;
+  --c-surface-hover: #181d27;
+  --c-border: #1f2430;
+  --c-border-strong: #2a3140;
+  --c-text: #e5e7eb;
+  --c-text-muted: #9ba3b4;
+  --c-text-subtle: #6b7280;
+  --c-text-on-accent: #f8fafc;
+
+  --c-accent: #5e6ad2;
+  --c-accent-hover: #7d87de;
+  --c-accent-soft: rgba(94, 106, 210, 0.16);
+  --c-accent-ring: rgba(94, 106, 210, 0.4);
+
+  --c-success: #4ade80;
+  --c-warning: #fbbf24;
+  --c-danger: #f87171;
+  --c-info: #38bdf8;
+
+  --c-sev-critical: #f87171;
+  --c-sev-high: #fb923c;
+  --c-sev-medium: #facc15;
+  --c-sev-low: #60a5fa;
+  --c-sev-info: #94a3b8;
+
+  --c-cat-crawl: #38bdf8;
+  --c-cat-on-page: #818cf8;
+  --c-cat-content: #c084fc;
+  --c-cat-links: #22d3ee;
+  --c-cat-schema: #f472b6;
+  --c-cat-perf: #fbbf24;
+  --c-cat-trust: #4ade80;
+  --c-cat-geo: #a78bfa;
+  --c-cat-conv: #fb923c;
+  --c-cat-meas: #9ca3af;
+
+  --c-chart-grid: rgba(255, 255, 255, 0.06);
+  --c-chart-axis: #6b7280;
+  --c-tooltip-bg: #0e1014;
+  --c-tooltip-border: #2a3140;
+}
+
+/* Light theme */
+[data-theme='light'] {
+  color-scheme: light;
+  --c-bg: #f7f8fa;
+  --c-bg-elevated: #ffffff;
+  --c-surface: #ffffff;
+  --c-surface-muted: #f1f3f6;
+  --c-surface-hover: #eef0f4;
+  --c-border: #e5e7eb;
+  --c-border-strong: #d1d5db;
+  --c-text: #0f172a;
+  --c-text-muted: #475569;
+  --c-text-subtle: #94a3b8;
+  --c-text-on-accent: #ffffff;
+
+  --c-accent: #5e6ad2;
+  --c-accent-hover: #4854c0;
+  --c-accent-soft: rgba(94, 106, 210, 0.12);
+  --c-accent-ring: rgba(94, 106, 210, 0.32);
+
+  --c-success: #10b981;
+  --c-warning: #d97706;
+  --c-danger: #dc2626;
+  --c-info: #0ea5e9;
+
+  --c-sev-critical: #dc2626;
+  --c-sev-high: #f97316;
+  --c-sev-medium: #ca8a04;
+  --c-sev-low: #2563eb;
+  --c-sev-info: #94a3b8;
+
+  --c-cat-crawl: #0ea5e9;
+  --c-cat-on-page: #6366f1;
+  --c-cat-content: #8b5cf6;
+  --c-cat-links: #06b6d4;
+  --c-cat-schema: #ec4899;
+  --c-cat-perf: #f59e0b;
+  --c-cat-trust: #10b981;
+  --c-cat-geo: #a855f7;
+  --c-cat-conv: #f97316;
+  --c-cat-meas: #64748b;
+
+  --c-chart-grid: rgba(15, 23, 42, 0.06);
+  --c-chart-axis: #64748b;
+  --c-tooltip-bg: #ffffff;
+  --c-tooltip-border: #e5e7eb;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: var(--c-bg);
+}
+
+body {
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: var(--c-accent-soft);
+  color: var(--c-text);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-border-strong);
+  border-radius: 4px;
+  border: 2px solid var(--c-bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-text-subtle);
+}
+
+/* Antd Layout reset (so root body bg shows through) */
+.ant-layout,
+.ant-layout-content,
+.ant-layout-header {
+  background: transparent !important;
+}
+
+.ant-message {
+  z-index: 1100;
+}

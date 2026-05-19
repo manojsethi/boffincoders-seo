@@ -1,0 +1,46 @@
+{
+  "name": "@boffin/backend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "build": "tsup",
+    "start": "dotenv -e ../../.env -- node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo skip",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agendajs/mongo-backend": "^4.0.0",
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@boffin/schemas": "workspace:*",
+    "agenda": "^6.0.0",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "fast-xml-parser": "^4.5.0",
+    "google-auth-library": "^9.15.0",
+    "googleapis": "^144.0.0",
+    "mongoose": "~8.21.0",
+    "openai": "^4.73.1",
+    "p-limit": "^6.1.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "playwright": "^1.60.0",
+    "robots-parser": "^3.0.1",
+    "turndown": "^7.2.0",
+    "undici": "^7.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.1",
+    "@types/turndown": "^5.0.5",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
