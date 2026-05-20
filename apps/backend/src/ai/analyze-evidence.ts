@@ -9,7 +9,9 @@ import {
   AIAnalysisModel,
 } from '../db';
 import { getLogger } from '../config/logger';
-import { routeAI } from './router';
+import { runTask } from './task-service';
+// Ensure tasks register on import.
+import './tasks';
 
 const log = getLogger('ai:analyze-evidence');
 
@@ -20,46 +22,10 @@ export type AnalyzeEvidenceOptions = {
   sourceAuditRunId: string;
 };
 
-const SYSTEM_PROMPT = `You are a senior SEO analyst.
-
-You will be given:
-- crawl summary
-- audit findings summary
-- markdown samples of representative pages
-
-Use ONLY the provided evidence. Do not invent facts. If evidence is insufficient,
-state it. Separate observed facts from your assessment. Be specific to this site.
-
-Return STRICT JSON with this shape (no markdown fencing):
-{
-  "websiteProfileSuggestion": {
-    "websiteCategory": "<one of: service-business|saas|ecommerce|ngo|education|publisher|government|healthcare|local-business|marketplace|documentation|community|event|personal-brand|mixed-other>",
-    "categoryConfidence": <0..1>,
-    "description": "<2-3 sentence factual summary of what this site is>",
-    "audienceSegments": ["..."],
-    "primaryGoals": ["..."],
-    "conversionActions": ["..."],
-    "entityGroups": ["..."],
-    "contentSections": ["..."],
-    "complianceContext": "<healthcare|finance|legal|govt|none|other>",
-    "markets": ["..."],
-    "languages": ["..."],
-    "reasoning": "<short paragraph citing evidence>"
-  },
-  "prioritySummary": [
-    { "title": "...", "rationale": "...", "evidenceRefs": ["finding:<ruleId>", "page:<url>"] }
-  ],
-  "contentOpportunities": [
-    { "topic": "...", "rationale": "...", "suggestedAudience": "...", "evidenceRefs": ["..."] }
-  ],
-  "internalLinkingOpportunities": [
-    { "fromUrl": "...", "toUrl": "...", "anchorIdea": "...", "rationale": "..." }
-  ],
-  "geoAeoObservations": [
-    { "observation": "...", "impact": "...", "evidenceRefs": ["..."] }
-  ],
-  "confidence": <0..1>
-}`;
+// Prompt + schema for project profile inference now live in
+// `apps/backend/src/ai/tasks/index.ts` as the registered task `infer-website-profile`. This file
+// is a thin shim that gathers evidence, calls `runTask`, and persists the validated output to
+// AIAnalysisModel for the legacy UI. Doc continuation §"Phase 4 — one AI path".
 
 export async function analyzeEvidence(opts: AnalyzeEvidenceOptions): Promise<void> {
   const projectId = new Types.ObjectId(opts.projectId);
@@ -115,47 +81,62 @@ export async function analyzeEvidence(opts: AnalyzeEvidenceOptions): Promise<voi
     dataGapCount: audit?.dataGapCount ?? 0,
   };
 
-  const userPrompt = JSON.stringify(
-    {
-      site: {
-        primaryDomain: project.primaryDomain,
-        siteName: project.siteName,
-        clientName: project.clientName,
-      },
-      crawl: crawlDigest,
-      audit: auditDigest,
-      topFindings: findingDigest.top,
-      categoryCounts: findingDigest.byCategory,
-      representativePages: pageDigests,
+  const params = {
+    site: {
+      primaryDomain: project.primaryDomain,
+      siteName: project.siteName,
+      clientName: project.clientName,
     },
-    null,
-    0,
-  );
+    crawl: crawlDigest,
+    audit: auditDigest,
+    topFindings: findingDigest.top,
+    categoryCounts: findingDigest.byCategory,
+    representativePages: pageDigests,
+  };
 
-  let provider = '';
-  let model = '';
-  let cost = 0;
-  let parsed: Record<string, unknown> = {};
-  try {
-    const res = await routeAI(
+  // All AI usage goes through the task service. Audit-logged, schema-validated, graceful when
+  // no provider is configured. Doc continuation §"Phase 4 — one AI path".
+  const result = await runTask('infer-website-profile', {
+    projectId: opts.projectId,
+    params,
+    sourceIds: {
+      crawlRunId: String(crawlRunId),
+      auditRunId: String(auditRunId),
+      aiAnalysisId: String(aiId),
+    },
+  });
+  if (result.status !== 'completed' || !result.output) {
+    const reason =
+      result.status === 'unavailable'
+        ? 'no AI provider configured'
+        : (result.error ?? `status=${result.status}`);
+    log.error({ reason, runId: result.id }, 'website-profile inference failed');
+    await AIAnalysisModel.updateOne(
+      { _id: aiId },
       {
-        systemPrompt: SYSTEM_PROMPT,
-        userPrompt,
-        json: true,
-        maxOutputTokens: 3500,
-        temperature: 0.2,
-        tier: 'cheap',
+        $set: {
+          sourceCrawlRunId: crawlRunId,
+          sourceAuditRunId: auditRunId,
+          aiTaskRunId: result.id,
+          status: 'failed',
+          requiresAnalystReview: true,
+          error: reason,
+        },
       },
-      { allowFallback: true },
     );
-    provider = res.provider;
-    model = res.model;
-    cost = res.costEstimateUsd;
-    parsed = safeJson(res.content);
-  } catch (err) {
-    log.error({ err }, 'AI provider call failed');
-    throw err;
+    // Throw so the Agenda job is also marked failed. Otherwise the job monitor would show the
+    // outer Agenda job as completed while the underlying AI task failed. Audit 2026-05-20.
+    throw new Error(`website-profile inference failed: ${reason}`);
   }
+
+  const out = result.output as {
+    websiteProfileSuggestion: Record<string, unknown>;
+    prioritySummary?: Array<Record<string, unknown>>;
+    contentOpportunities?: Array<Record<string, unknown>>;
+    internalLinkingOpportunities?: Array<Record<string, unknown>>;
+    geoAeoObservations?: Array<Record<string, unknown>>;
+    confidence?: number;
+  };
 
   await AIAnalysisModel.updateOne(
     { _id: aiId },
@@ -163,16 +144,17 @@ export async function analyzeEvidence(opts: AnalyzeEvidenceOptions): Promise<voi
       $set: {
         sourceCrawlRunId: crawlRunId,
         sourceAuditRunId: auditRunId,
-        modelProvider: provider,
-        modelName: model,
-        costEstimate: cost,
+        modelProvider: result.provider ?? '',
+        modelName: result.model ?? '',
+        costEstimate: result.costEstimateUsd,
+        aiTaskRunId: result.id,
         inputSummary: { pagesIncluded: pickedPages.length, findingsIncluded: findingDigest.top.length },
-        websiteProfileSuggestion: (parsed.websiteProfileSuggestion as Record<string, unknown>) ?? {},
-        prioritySummary: asArray(parsed.prioritySummary),
-        contentOpportunities: asArray(parsed.contentOpportunities),
-        internalLinkingOpportunities: asArray(parsed.internalLinkingOpportunities),
-        geoAeoObservations: asArray(parsed.geoAeoObservations),
-        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+        websiteProfileSuggestion: out.websiteProfileSuggestion ?? {},
+        prioritySummary: asArray(out.prioritySummary),
+        contentOpportunities: asArray(out.contentOpportunities),
+        internalLinkingOpportunities: asArray(out.internalLinkingOpportunities),
+        geoAeoObservations: asArray(out.geoAeoObservations),
+        confidence: typeof out.confidence === 'number' ? out.confidence : result.confidence,
         requiresAnalystReview: true,
         status: 'completed',
       },
@@ -233,26 +215,6 @@ function summarizeFindings(
 
 function severityWeight(s: string): number {
   return ({ critical: 100, high: 75, medium: 50, low: 25, info: 10 } as Record<string, number>)[s] ?? 0;
-}
-
-function safeJson(text: string): Record<string, unknown> {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1]!.trim() : trimmed;
-  try {
-    return JSON.parse(candidate) as Record<string, unknown>;
-  } catch {
-    const start = candidate.indexOf('{');
-    const end = candidate.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
-      } catch {
-        // fall through
-      }
-    }
-    return {};
-  }
 }
 
 function asArray(value: unknown): Array<Record<string, unknown>> {

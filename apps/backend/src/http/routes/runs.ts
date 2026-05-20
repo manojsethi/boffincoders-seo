@@ -155,6 +155,9 @@ runsRouter.get('/projects/:id/ai-analyses', async (req, res, next) => {
         approvedAt: a.approvedAt,
         costEstimate: a.costEstimate,
         error: a.error,
+        aiTaskRunId: (a as { aiTaskRunId?: unknown }).aiTaskRunId
+          ? String((a as { aiTaskRunId: unknown }).aiTaskRunId)
+          : null,
       })),
     );
   } catch (err) {

@@ -39,6 +39,21 @@ const STATE_TONE: Record<string, Tone> = {
   sent: 'success',
   enabled: 'success',
   disabled: 'neutral',
+  // fix plan + item lifecycle
+  active: 'accent',
+  archived: 'neutral',
+  planned: 'info',
+  'in-progress': 'info',
+  fixed: 'accent',
+  'ready-for-validation': 'warning',
+  validated: 'success',
+  'failed-validation': 'danger',
+  deferred: 'neutral',
+  // validation result statuses
+  passed: 'success',
+  inconclusive: 'warning',
+  pending: 'info',
+  'not-started': 'neutral',
 };
 
 const SEVERITY_TONE: Record<string, Tone> = {

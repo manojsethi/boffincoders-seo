@@ -10,6 +10,8 @@ import { InfoIcon } from './InfoIcon';
 import { TermLabel } from './TermLabel';
 import { EmptyState } from './EmptyState';
 import { useIssueDetail } from '../hooks/useIssues';
+import { RecommendationCard } from './RecommendationCard';
+import { AddToFixPlanButton } from './AddToFixPlanButton';
 
 const LIFECYCLE_OPTIONS = [
   { label: 'Open', value: 'open' },
@@ -107,6 +109,8 @@ export function IssueDrawer({
               <p className="text-xs text-text-muted mt-1">Site-level issue.</p>
             )}
           </div>
+
+          {issueId ? <RecommendationCard projectId={projectId} issueId={issueId} /> : null}
 
           <Section title="Evidence" term="evidence">
             {data.currentFinding ? (
@@ -258,7 +262,12 @@ export function IssueDrawer({
             )}
           </Section>
 
-          <div className="pt-2 border-t border-border flex justify-end">
+          <div className="pt-2 border-t border-border flex justify-between items-center">
+            {issueId ? (
+              <AddToFixPlanButton projectId={projectId} sourceType="issue" sourceId={issueId} />
+            ) : (
+              <span />
+            )}
             <Button onClick={onClose}>Close</Button>
           </div>
         </div>

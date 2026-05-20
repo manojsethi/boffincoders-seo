@@ -12,6 +12,8 @@ const TABS = [
   { key: 'opportunities', label: 'Opportunities' },
   { key: 'keywords', label: 'Keywords' },
   { key: 'goals', label: 'Goals' },
+  { key: 'content-briefs', label: 'Briefs' },
+  { key: 'fix-plans', label: 'Fix plans' },
   { key: 'reports', label: 'Reports' },
   { key: 'jobs', label: 'Jobs' },
   { key: 'profile', label: 'Profile' },

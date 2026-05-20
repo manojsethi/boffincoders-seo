@@ -9,6 +9,8 @@ import {
   CwvMetricModel,
   OpportunityModel,
   SiteConnectionModel,
+  FixPlanModel,
+  ContentBriefModel,
 } from '../db';
 import type { ReportSection } from './initial-audit';
 
@@ -367,6 +369,117 @@ export async function buildProgressReport(opts: {
         : verifiedInPeriod
             .slice(0, opts.view === 'client' ? 10 : 30)
             .map((i, idx) => `${idx + 1}. ${i.title} _(severity: ${i.severity})_`)
+            .join('\n'),
+  });
+
+  // 8b. Fix plan progress. Doc continuation §"Reporting integration".
+  // Internal view shows internalNotes + failed validations + owners. Client view hides them and
+  // shows only items where clientVisible === true.
+  const [activePlan, briefsApprovedInPeriod] = await Promise.all([
+    FixPlanModel.findOne({ projectId, status: 'active' }).sort({ updatedAt: -1 }).lean(),
+    ContentBriefModel.find({
+      projectId,
+      status: { $in: ['approved', 'implemented'] },
+      approvedAt: { $gte: opts.periodStart, $lte: opts.periodEnd },
+    })
+      .select({ title: 1, targetKeyword: 1, status: 1 })
+      .lean(),
+  ]);
+  if (activePlan) {
+    const items = (activePlan.items ?? []) as Array<{
+      title?: string;
+      status?: string;
+      validationStatus?: string;
+      ownerType?: string;
+      priority?: string;
+      clientVisible?: boolean;
+      internalNotes?: string;
+      validatedAt?: Date | null;
+      validationEvidence?: Record<string, unknown>;
+    }>;
+    const visible = items.filter((it) =>
+      opts.view === 'client' ? it.clientVisible !== false : true,
+    );
+    const validated = visible.filter((it) => it.status === 'validated');
+    const failed = visible.filter((it) => it.status === 'failed-validation');
+    const inProgress = visible.filter(
+      (it) => it.status === 'in-progress' || it.status === 'fixed' || it.status === 'ready-for-validation',
+    );
+    const planned = visible.filter((it) => it.status === 'planned');
+    const inconclusive = visible.filter((it) => it.validationStatus === 'inconclusive');
+
+    const fmtItem = (it: { title?: string; ownerType?: string; priority?: string }): string => {
+      if (opts.view === 'client') return `${it.title ?? '(untitled)'}`;
+      return `[${it.priority ?? 'P2'} · ${it.ownerType ?? 'analyst'}] ${it.title ?? '(untitled)'}`;
+    };
+    sections.push({
+      key: 'fix-plan-progress',
+      title: `Fix plan progress — ${activePlan.title}`,
+      body: [
+        `Active plan **${activePlan.title}** · ${visible.length} item${visible.length === 1 ? '' : 's'} in ${opts.view} view.`,
+        '',
+        `**Validated** (${validated.length}):`,
+        validated.length === 0
+          ? '- _none_'
+          : validated.map((it) => `- ${fmtItem(it)}`).join('\n'),
+        '',
+        `**In progress** (${inProgress.length}):`,
+        inProgress.length === 0
+          ? '- _none_'
+          : inProgress.map((it) => `- ${fmtItem(it)}`).join('\n'),
+        '',
+        `**Planned** (${planned.length}):`,
+        planned.length === 0
+          ? '- _none_'
+          : planned.map((it) => `- ${fmtItem(it)}`).join('\n'),
+        opts.view === 'internal' && failed.length > 0 ? '' : '',
+        opts.view === 'internal' && failed.length > 0 ? `**Failed validation** (${failed.length}):` : '',
+        opts.view === 'internal' && failed.length > 0
+          ? failed
+              .map((it) => {
+                const reason = (it.validationEvidence as { reason?: string } | undefined)?.reason;
+                return `- ${fmtItem(it)}${reason ? ` — ${reason}` : ''}`;
+              })
+              .join('\n')
+          : '',
+        opts.view === 'internal' && inconclusive.length > 0 ? '' : '',
+        opts.view === 'internal' && inconclusive.length > 0
+          ? `**Inconclusive validations** (${inconclusive.length}):`
+          : '',
+        opts.view === 'internal' && inconclusive.length > 0
+          ? inconclusive
+              .map((it) => {
+                const reason = (it.validationEvidence as { reason?: string } | undefined)?.reason;
+                return `- ${fmtItem(it)}${reason ? ` — ${reason}` : ''}`;
+              })
+              .join('\n')
+          : '',
+      ]
+        .filter((s) => s !== '')
+        .join('\n'),
+    });
+  } else {
+    sections.push({
+      key: 'fix-plan-progress',
+      title: 'Fix plan progress',
+      body: '_No active fix plan. Open the Fix plans tab and click "Generate weekly plan" to start one._',
+    });
+  }
+
+  // 8c. Approved content briefs in period
+  sections.push({
+    key: 'approved-briefs',
+    title: 'Approved content briefs',
+    body:
+      briefsApprovedInPeriod.length === 0
+        ? '_No content briefs approved this period._'
+        : briefsApprovedInPeriod
+            .map(
+              (b, idx) =>
+                `${idx + 1}. **${b.title}** — target keyword: _${b.targetKeyword ?? '(unknown)'}_${
+                  opts.view === 'internal' ? ` _(${b.status})_` : ''
+                }`,
+            )
             .join('\n'),
   });
 

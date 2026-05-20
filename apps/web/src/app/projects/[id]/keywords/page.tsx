@@ -4,6 +4,7 @@ import { use, useMemo, useState } from 'react';
 import { App, Button, Form, Input, InputNumber, Modal, Select, Table, Tag } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, Pencil, Trash2 } from 'lucide-react';
+import { CreateBriefButton } from '../../../../components/CreateBriefButton';
 import { api } from '../../../../lib/api';
 import { PageHeader } from '../../../../components/PageHeader';
 import { SectionCard } from '../../../../components/SectionCard';
@@ -88,6 +89,45 @@ export default function KeywordsPage({ params }: { params: Promise<{ id: string 
   const { data: goals = [] } = useQuery<Goal[]>({
     queryKey: ['goals', id],
     queryFn: () => api<Goal[]>(`/projects/${id}/goals`),
+  });
+
+  type KeywordFit = {
+    id: string;
+    keywordId: string;
+    verdict: string;
+    confidence: number;
+    impressions: number;
+    rootCauseSummary: string;
+  };
+  const { data: fits = [], refetch: refetchFits } = useQuery<KeywordFit[]>({
+    queryKey: ['keyword-fits', id],
+    queryFn: () => api<KeywordFit[]>(`/projects/${id}/keyword-fit?limit=2000`),
+  });
+  const fitByKw = useMemo(() => new Map(fits.map((f) => [f.keywordId, f])), [fits]);
+
+  type BriefSummary = {
+    keywordId: string;
+    count: number;
+    statuses: string[];
+    latestStatus: string;
+    latestId: string;
+  };
+  const { data: briefSummary = [] } = useQuery<BriefSummary[]>({
+    queryKey: ['brief-summary', id],
+    queryFn: () => api<BriefSummary[]>(`/projects/${id}/content-briefs/summary`),
+  });
+  const briefByKw = useMemo(
+    () => new Map(briefSummary.map((b) => [b.keywordId, b])),
+    [briefSummary],
+  );
+
+  const recompute = useMutation({
+    mutationFn: () => api(`/projects/${id}/keyword-fit/recompute`, { method: 'POST' }),
+    onSuccess: () => {
+      message.success('Keyword fit recomputed');
+      void refetchFits();
+    },
+    onError: (err) => message.error((err as Error).message),
   });
 
   const { data: connections = [] } = useQuery<{ provider: string; status: string }[]>({
@@ -184,6 +224,13 @@ export default function KeywordsPage({ params }: { params: Promise<{ id: string 
         actions={
           <div className="flex items-center gap-2">
             <Button
+              onClick={() => recompute.mutate()}
+              loading={recompute.isPending}
+              title="Re-compute keyword/page fit verdicts from latest GSC + page data."
+            >
+              Recompute fit
+            </Button>
+            <Button
               icon={<Download size={14} />}
               onClick={() => setImportOpen(true)}
               disabled={!gscConnected}
@@ -267,7 +314,7 @@ export default function KeywordsPage({ params }: { params: Promise<{ id: string 
             loading={isLoading}
             dataSource={keywords}
             pagination={{ pageSize: 50, showSizeChanger: false }}
-            scroll={{ x: 1500 }}
+            scroll={{ x: 1630 }}
             columns={[
               {
                 title: 'Keyword',
@@ -294,6 +341,22 @@ export default function KeywordsPage({ params }: { params: Promise<{ id: string 
                 dataIndex: 'status',
                 width: 150,
                 render: (s: string) => <StatusPill value={s} kind="state" />,
+              },
+              {
+                title: <TermLabel term="keyword-fit">Fit verdict</TermLabel>,
+                width: 180,
+                render: (_: unknown, k: Keyword) => {
+                  const f = fitByKw.get(k.id);
+                  if (!f) return <span className="text-text-subtle text-xs">—</span>;
+                  return (
+                    <span className="flex items-center gap-1.5">
+                      <StatusPill value={f.verdict} kind="state" />
+                      <span className="text-[10px] uppercase text-text-subtle">
+                        {Math.round(f.confidence * 100)}%
+                      </span>
+                    </span>
+                  );
+                },
               },
               {
                 title: 'Impressions',
@@ -354,10 +417,35 @@ export default function KeywordsPage({ params }: { params: Promise<{ id: string 
               },
               { title: 'Priority', dataIndex: 'priority', width: 80 },
               {
+                title: 'Briefs',
+                width: 130,
+                render: (_: unknown, k: Keyword) => {
+                  const b = briefByKw.get(k.id);
+                  if (!b) return <span className="text-text-subtle text-xs">—</span>;
+                  return (
+                    <a
+                      href={`/projects/${id}/content-briefs/${b.latestId}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1.5 hover:underline"
+                    >
+                      <span className="tabular-nums text-xs">{b.count}</span>
+                      <StatusPill value={b.latestStatus} kind="state" />
+                    </a>
+                  );
+                },
+              },
+              {
                 title: '',
-                width: 90,
+                width: 160,
                 render: (_: unknown, k: Keyword) => (
                   <div className="flex items-center gap-1">
+                    <CreateBriefButton
+                      projectId={id}
+                      keywordId={k.id}
+                      pageId={k.mappedPageId ?? undefined}
+                      keywordIsMapped={!!k.mappedPageId}
+                      label="Brief"
+                    />
                     <Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => openEdit(k)} />
                     <Button
                       type="text"

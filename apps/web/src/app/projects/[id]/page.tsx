@@ -17,6 +17,8 @@ import { ChartContainer } from '../../../components/charts/ChartContainer';
 import { CategoryScoresChart } from '../../../components/charts/CategoryScores';
 import { useProjectOverview } from '../../../hooks/useProjectOverview';
 import { OverviewDataPanel } from '../../../components/OverviewDataPanel';
+import { RecommendationsTopActions } from '../../../components/RecommendationsTopActions';
+import { ActiveFixPlanCard } from '../../../components/ActiveFixPlanCard';
 
 export default function ProjectOverview({
   params,
@@ -290,6 +292,14 @@ export default function ProjectOverview({
             </ul>
           )}
         </SectionCard>
+      </div>
+
+      <div className="mb-4">
+        <RecommendationsTopActions projectId={id} />
+      </div>
+
+      <div className="mb-4">
+        <ActiveFixPlanCard projectId={id} />
       </div>
 
       <OverviewDataPanel projectId={id} />

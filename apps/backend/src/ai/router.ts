@@ -49,9 +49,11 @@ export async function routeAI(req: AIRequest, opts: RouteOptions = {}): Promise<
   } else if (tier === 'premium') {
     order = ['openrouter', 'openai', 'anthropic', 'groq', 'local'];
   } else {
-    // cheap: prefer env default first, then low-cost order, exclude anthropic unless requested.
+    // cheap: LOCAL FIRST when available (cost + privacy). Then env default, then external order.
+    // Anthropic is excluded from the cheap default order — only used when premium or explicit.
+    // Doc continuation §"Phase 4" + audit feedback 2026-05-20.
     const preferred = (env.AI_DEFAULT_PROVIDER as AIProvider) ?? 'openrouter';
-    order = uniqueFilter([preferred, 'openrouter', 'groq', 'openai', 'local']);
+    order = uniqueFilter(['local', preferred, 'openrouter', 'groq', 'openai']);
   }
 
   let lastErr: Error | null = null;

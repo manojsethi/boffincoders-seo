@@ -20,6 +20,19 @@ const KeywordSchema = new Schema(
       default: 'unknown',
     },
     mappedPageId: { type: Types.ObjectId },
+    rankingPageId: { type: Types.ObjectId },
+    // Provenance for mappedPageId. Audit feedback 2026-05-20.
+    // - analyst: explicit user action via POST/PATCH
+    // - import: legacy auto-map from GSC import (deprecated)
+    // - system: derived by background job
+    // - unknown: legacy rows pre-provenance
+    mappingSource: {
+      type: String,
+      enum: ['analyst', 'import', 'system', 'unknown', null],
+      default: null,
+    },
+    mappedAt: { type: Date },
+    mappedByUserId: { type: String },
     mappedGoalId: { type: String },
     preferredUrl: { type: String },
     rankingUrl: { type: String },

@@ -12,7 +12,7 @@ const KeywordCreate = z.object({
     .enum(['informational', 'commercial', 'transactional', 'navigational', 'local', 'support', 'unknown'])
     .default('unknown'),
   funnelStage: z.enum(['TOFU', 'MOFU', 'BOFU', 'retention', 'unknown']).default('unknown'),
-  mappedPageId: z.string().optional(),
+  mappedPageId: z.string().optional().nullable(),
   mappedGoalId: z.string().optional(),
   preferredUrl: z.string().optional(),
   priority: z.enum(['P0', 'P1', 'P2']).default('P2'),
@@ -47,6 +47,9 @@ keywordsRouter.get('/projects/:id/keywords', async (req, res, next) => {
         intent: r.intent,
         funnelStage: r.funnelStage,
         mappedPageId: r.mappedPageId ? String(r.mappedPageId) : null,
+        rankingPageId: r.rankingPageId ? String(r.rankingPageId) : null,
+        mappingSource: (r as { mappingSource?: string | null }).mappingSource ?? null,
+        mappedAt: (r as { mappedAt?: Date | null }).mappedAt ?? null,
         mappedGoalId: r.mappedGoalId ?? null,
         preferredUrl: r.preferredUrl ?? null,
         rankingUrl: r.rankingUrl ?? null,
@@ -76,6 +79,20 @@ keywordsRouter.post('/projects/:id/keywords', async (req, res, next) => {
     }
     const pid = new Types.ObjectId(req.params.id);
     const body = KeywordCreate.parse(req.body);
+    // Manual create — provenance is always 'analyst' when mappedPageId is provided.
+    const setMap: Record<string, unknown> = {
+      intent: body.intent,
+      funnelStage: body.funnelStage,
+      mappedGoalId: body.mappedGoalId,
+      preferredUrl: body.preferredUrl,
+      priority: body.priority,
+      notes: body.notes,
+    };
+    if (body.mappedPageId) {
+      setMap.mappedPageId = new Types.ObjectId(body.mappedPageId);
+      setMap.mappingSource = 'analyst';
+      setMap.mappedAt = new Date();
+    }
     const doc = await KeywordModel.findOneAndUpdate(
       { projectId: pid, keyword: body.keyword.trim() },
       {
@@ -85,17 +102,7 @@ keywordsRouter.post('/projects/:id/keywords', async (req, res, next) => {
           source: body.source,
           status: body.mappedPageId ? 'mapped' : 'candidate',
         },
-        $set: {
-          intent: body.intent,
-          funnelStage: body.funnelStage,
-          mappedPageId: body.mappedPageId
-            ? new Types.ObjectId(body.mappedPageId)
-            : undefined,
-          mappedGoalId: body.mappedGoalId,
-          preferredUrl: body.preferredUrl,
-          priority: body.priority,
-          notes: body.notes,
-        },
+        $set: setMap,
       },
       { upsert: true, new: true },
     ).lean();
@@ -116,8 +123,19 @@ keywordsRouter.patch('/projects/:id/keywords/:keywordId', async (req, res, next)
     }
     const body = KeywordUpdate.parse(req.body);
     const set: Record<string, unknown> = { ...body };
-    if (body.mappedPageId) set.mappedPageId = new Types.ObjectId(body.mappedPageId);
-    if (body.mappedPageId && !body.status) set.status = 'mapped';
+    // Explicit analyst action — stamp provenance whenever a mapping is set.
+    if (body.mappedPageId) {
+      set.mappedPageId = new Types.ObjectId(body.mappedPageId);
+      set.mappingSource = 'analyst';
+      set.mappedAt = new Date();
+      if (!body.status) set.status = 'mapped';
+    } else if (body.mappedPageId === '' || body.mappedPageId === null) {
+      // Explicit unmap from analyst.
+      set.mappedPageId = null;
+      set.mappingSource = null;
+      set.mappedAt = null;
+      if (!body.status) set.status = 'unmapped';
+    }
     await KeywordModel.updateOne(
       { _id: req.params.keywordId, projectId: req.params.id },
       { $set: set },
@@ -158,6 +176,12 @@ keywordsRouter.post('/projects/:id/keywords/import-gsc', async (req, res, next) 
     const pid = new Types.ObjectId(req.params.id);
     const body = ImportBody.parse(req.body ?? {});
 
+    const latest = await GscRowModel.findOne({ projectId: pid })
+      .sort({ rangeEnd: -1 })
+      .select({ rangeEnd: 1 })
+      .lean();
+    const latestRangeEnd = latest?.rangeEnd ?? null;
+
     const agg = await GscRowModel.aggregate<{
       _id: string;
       clicks: number;
@@ -167,7 +191,9 @@ keywordsRouter.post('/projects/:id/keywords/import-gsc', async (req, res, next) 
       topPage: string;
       topPageImpressions: number;
     }>([
-      { $match: { projectId: pid } },
+      // Scope to the latest sync window. Audit feedback 2026-05-20 — importer + analyzer must
+      // agree on what "current" GSC data means.
+      { $match: { projectId: pid, ...(latestRangeEnd ? { rangeEnd: latestRangeEnd } : {}) } },
       { $sort: { impressions: -1 } },
       {
         $group: {
@@ -215,8 +241,18 @@ keywordsRouter.post('/projects/:id/keywords/import-gsc', async (req, res, next) 
         ? ((row as unknown as { pageCount: string[] }).pageCount).length
         : 1;
       const rankingPageId = urlToPageId.get(row.topPage);
-      // If a ranking page exists in the crawl set we auto-promote to 'mapped' — the analyst can
-      // override to 'wrong-page' or 'unmapped' afterwards. Otherwise leave as 'candidate'.
+      // Audit feedback 2026-05-20: GSC import only tells us "this URL currently ranks", not
+      // "this URL is the intended target". Never auto-set `mappedPageId`. Never overwrite an
+      // analyst mapping. Refresh only what GSC actually owns: metrics + ranking page.
+      const update: Record<string, unknown> = {
+        clicks: row.clicks,
+        impressions: row.impressions,
+        ctr: row.impressions > 0 ? row.clicks / row.impressions : 0,
+        position: row.avgPosition ?? 0,
+        pageCount: pageIds,
+        rankingUrl: row.topPage,
+        ...(rankingPageId ? { rankingPageId } : { rankingPageId: null }),
+      };
       await KeywordModel.updateOne(
         { projectId: pid, keyword: row._id },
         {
@@ -224,18 +260,9 @@ keywordsRouter.post('/projects/:id/keywords/import-gsc', async (req, res, next) 
             projectId: pid,
             keyword: row._id,
             source: 'gsc',
+            status: 'candidate',
           },
-          $set: {
-            clicks: row.clicks,
-            impressions: row.impressions,
-            ctr: row.impressions > 0 ? row.clicks / row.impressions : 0,
-            position: row.avgPosition ?? 0,
-            pageCount: pageIds,
-            rankingUrl: row.topPage,
-            ...(rankingPageId
-              ? { mappedPageId: rankingPageId, status: 'mapped' }
-              : { status: 'candidate' }),
-          },
+          $set: update,
         },
         { upsert: true },
       );
@@ -246,5 +273,8 @@ keywordsRouter.post('/projects/:id/keywords/import-gsc', async (req, res, next) 
     next(err);
   }
 });
+
+// Legacy keyword mapping cleanup has moved to the controlled maintenance task system. See
+// POST /projects/:id/maintenance/run with taskKey 'cleanup-legacy-keyword-mappings'.
 
 void z;

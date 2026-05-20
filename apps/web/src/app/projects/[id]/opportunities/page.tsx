@@ -4,6 +4,8 @@ import { use, useMemo, useState } from 'react';
 import { App, Button, Drawer, Select, Table, Tag } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
+import { CreateBriefButton } from '../../../../components/CreateBriefButton';
+import { AddToFixPlanButton } from '../../../../components/AddToFixPlanButton';
 import { api } from '../../../../lib/api';
 import { PageHeader } from '../../../../components/PageHeader';
 import { SectionCard } from '../../../../components/SectionCard';
@@ -110,6 +112,33 @@ export default function OpportunitiesPage({
     queryKey: ['goals', id],
     queryFn: () => api<GoalRow[]>(`/projects/${id}/goals`),
   });
+  // Keyword name -> id lookup so the Create brief CTA can target the right keyword from an
+  // opportunity drawer.
+  const { data: keywords = [] } = useQuery<Array<{ id: string; keyword: string; mappedPageId: string | null }>>({
+    queryKey: ['keywords', id],
+    queryFn: () => api(`/projects/${id}/keywords?limit=2000`),
+  });
+  const keywordIdByName = useMemo(
+    () => new Map(keywords.map((k) => [k.keyword.toLowerCase(), k])),
+    [keywords],
+  );
+
+  type BriefSummary = {
+    keywordId: string;
+    count: number;
+    statuses: string[];
+    latestStatus: string;
+    latestId: string;
+  };
+  const { data: briefSummary = [] } = useQuery<BriefSummary[]>({
+    queryKey: ['brief-summary', id],
+    queryFn: () => api<BriefSummary[]>(`/projects/${id}/content-briefs/summary`),
+  });
+  const briefByKw = useMemo(
+    () => new Map(briefSummary.map((b) => [b.keywordId, b])),
+    [briefSummary],
+  );
+
   useQuery<ConnRow[]>({
     queryKey: ['site-connections', id],
     queryFn: () => api<ConnRow[]>(`/projects/${id}/integrations`),
@@ -384,7 +413,43 @@ export default function OpportunitiesPage({
               )}
               {selected.keyword && (
                 <Row label="Keyword">
-                  <span className="font-mono text-[12px]">{selected.keyword}</span>
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-[12px]">{selected.keyword}</span>
+                    {(() => {
+                      const k = keywordIdByName.get(selected.keyword.toLowerCase());
+                      if (!k) return null;
+                      const b = briefByKw.get(k.id);
+                      const isContent =
+                        selected.type === 'content-gap' ||
+                        selected.type === 'quick-win' ||
+                        selected.type === 'wrong-page-ranking';
+                      return (
+                        <>
+                          {b && (
+                            <a
+                              href={`/projects/${id}/content-briefs/${b.latestId}`}
+                              className="flex items-center gap-1.5 hover:underline"
+                              title={`${b.count} brief${b.count === 1 ? '' : 's'} · statuses: ${b.statuses.join(', ')}`}
+                            >
+                              <span className="tabular-nums text-xs text-text-muted">
+                                {b.count} brief{b.count === 1 ? '' : 's'}
+                              </span>
+                              <StatusPill value={b.latestStatus} kind="state" />
+                            </a>
+                          )}
+                          {isContent && (
+                            <CreateBriefButton
+                              projectId={id}
+                              keywordId={k.id}
+                              pageId={k.mappedPageId ?? selected.pageId ?? undefined}
+                              keywordIsMapped={!!k.mappedPageId}
+                              label={b ? 'New brief' : 'Create brief'}
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
+                  </span>
                 </Row>
               )}
               {!selected.goalLabel && !selected.pageUrl && !selected.keyword && (
@@ -451,6 +516,16 @@ export default function OpportunitiesPage({
                 {JSON.stringify(selected.evidence, null, 2)}
               </pre>
             </details>
+
+            {/* Add to fix plan */}
+            <div className="pt-2 border-t border-border">
+              <AddToFixPlanButton
+                projectId={id}
+                sourceType="opportunity"
+                sourceId={selected.id}
+                size="middle"
+              />
+            </div>
 
             {/* Triage controls */}
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">

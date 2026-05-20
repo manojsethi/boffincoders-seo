@@ -5,6 +5,7 @@ import { App, Button, InputNumber, Select, Skeleton, Switch } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '../../../../components/PageHeader';
 import { SectionCard } from '../../../../components/SectionCard';
+import { MaintenanceCard } from '../../../../components/MaintenanceCard';
 import { api } from '../../../../lib/api';
 
 type CrawlSettings = {
@@ -177,6 +178,7 @@ export default function ProjectSettings({
       </SectionCard>
 
       <IntegrationsCard projectId={id} />
+      <MaintenanceCard projectId={id} />
     </>
   );
 }
@@ -230,8 +232,18 @@ function IntegrationsCard({ projectId }: { projectId: string }): JSX.Element {
     refetchInterval: 4000,
   });
 
-  // Latest job per provider (gsc/ga4/cwv), newest by startedAt/finishedAt.
-  // The shared jobs endpoint returns provider on each row — group on that field.
+  // Latest job per provider — prioritize ACTIVE jobs over older completed ones so the UI doesn't
+  // claim an integration is idle while a manual sync just queued. Doc continuation §"Phase 1"
+  // priority order: running > queued > scheduled > failed > completed > cancelled > stale.
+  const STATUS_RANK: Record<string, number> = {
+    running: 6,
+    queued: 5,
+    scheduled: 4,
+    failed: 3,
+    completed: 2,
+    cancelled: 1,
+    stale: 1,
+  };
   const latestByType = new Map<string, JobRow>();
   for (const j of jobsData?.jobs ?? []) {
     const key = j.provider ? `${j.provider}-sync` : j.type;
@@ -240,9 +252,18 @@ function IntegrationsCard({ projectId }: { projectId: string }): JSX.Element {
       latestByType.set(key, j);
       continue;
     }
-    const a = Date.parse(j.finishedAt ?? j.startedAt ?? '') || 0;
-    const b = Date.parse(existing.finishedAt ?? existing.startedAt ?? '') || 0;
-    if (a > b) latestByType.set(key, j);
+    const rankNew = STATUS_RANK[j.status] ?? 0;
+    const rankOld = STATUS_RANK[existing.status] ?? 0;
+    if (rankNew > rankOld) {
+      latestByType.set(key, j);
+      continue;
+    }
+    if (rankNew === rankOld) {
+      // Tie-break by recency: prefer the more recently scheduled/started job.
+      const a = Date.parse(j.finishedAt ?? j.startedAt ?? j.nextRunAt ?? '') || 0;
+      const b = Date.parse(existing.finishedAt ?? existing.startedAt ?? existing.nextRunAt ?? '') || 0;
+      if (a > b) latestByType.set(key, j);
+    }
   }
 
   const sync = useMutation({
@@ -251,9 +272,18 @@ function IntegrationsCard({ projectId }: { projectId: string }): JSX.Element {
         method: 'POST',
         body: JSON.stringify({ provider }),
       }),
-    onSuccess: (_d, provider) => message.success(`${provider.toUpperCase()} sync queued.`),
+    onSuccess: (_d, provider) => {
+      message.success(`${provider.toUpperCase()} sync queued.`);
+      // Immediately refetch so the freshly-queued job replaces the previous completed one in the
+      // UI before the 4s poll fires.
+      void qc.invalidateQueries({ queryKey: ['integration-jobs', projectId] });
+      void qc.invalidateQueries({ queryKey: ['integrations', projectId] });
+    },
     onError: (err) => message.error((err as Error).message),
   });
+  // Provider currently in mutation-pending state. Used to disable the button before the next
+  // job-list refetch lands.
+  const pendingProvider = sync.isPending ? (sync.variables as 'gsc' | 'ga4' | 'cwv') : null;
 
   const disconnect = useMutation({
     mutationFn: (provider: string) =>
@@ -329,6 +359,7 @@ function IntegrationsCard({ projectId }: { projectId: string }): JSX.Element {
           onSync={() => sync.mutate('gsc')}
           onDisconnect={() => disconnect.mutate('gsc')}
           onSelected={() => qc.invalidateQueries({ queryKey: ['integrations', projectId] })}
+          mutationPending={pendingProvider === 'gsc' || pendingProvider === 'ga4' || pendingProvider === 'cwv' ? pendingProvider : null}
         />
         <Row
           label="Google Analytics 4"
@@ -341,6 +372,7 @@ function IntegrationsCard({ projectId }: { projectId: string }): JSX.Element {
           onSync={() => sync.mutate('ga4')}
           onDisconnect={() => disconnect.mutate('ga4')}
           onSelected={() => qc.invalidateQueries({ queryKey: ['integrations', projectId] })}
+          mutationPending={pendingProvider === 'gsc' || pendingProvider === 'ga4' || pendingProvider === 'cwv' ? pendingProvider : null}
         />
         <Row
           label="Core Web Vitals (CrUX / PSI)"
@@ -353,6 +385,7 @@ function IntegrationsCard({ projectId }: { projectId: string }): JSX.Element {
           onSync={() => sync.mutate('cwv')}
           onDisconnect={() => disconnect.mutate('cwv')}
           onSelected={() => undefined}
+          mutationPending={pendingProvider}
         />
       </div>
     </SectionCard>
@@ -370,6 +403,7 @@ function Row({
   onSync,
   onDisconnect,
   onSelected,
+  mutationPending,
 }: {
   label: string;
   provider: 'gsc' | 'ga4' | 'cwv';
@@ -381,6 +415,7 @@ function Row({
   onSync: () => void;
   onDisconnect: () => void;
   onSelected: () => void;
+  mutationPending: 'gsc' | 'ga4' | 'cwv' | null;
 }): JSX.Element {
   const status = conn?.status ?? 'disconnected';
   const isOauthProvider = provider === 'gsc' || provider === 'ga4';
@@ -389,8 +424,19 @@ function Row({
   const isCwvVirtual = provider === 'cwv';
   // CWV uses available/limited/error rather than OAuth-style states.
   const cwvSyncable = isCwvVirtual && (status === 'available' || status === 'limited');
-  const inFlight =
-    latestJob?.status === 'queued' || latestJob?.status === 'running' || latestJob?.status === 'scheduled';
+  // "Active" = job will produce data or already is. Scheduled wrappers don't block manual sync.
+  const jobActive =
+    latestJob?.status === 'queued' || latestJob?.status === 'running';
+  // Mutation pending for this provider — disable immediately even before next refetch.
+  const mutating = mutationPending === provider;
+  const inFlight = jobActive || mutating;
+  const buttonLabel = mutating
+    ? 'Sync queued'
+    : latestJob?.status === 'running'
+      ? 'Sync running…'
+      : latestJob?.status === 'queued'
+        ? 'Sync queued'
+        : 'Sync now';
 
   return (
     <div className="flex items-start justify-between gap-3 border border-border rounded-md p-3">
@@ -454,17 +500,16 @@ function Row({
             size="small"
             onClick={onSync}
             disabled={inFlight}
+            loading={mutating}
             title={
               inFlight
-                ? `Sync already ${latestJob?.status}; new run will be available after it finishes.`
+                ? mutating
+                  ? 'Queueing sync…'
+                  : `Sync already ${latestJob?.status}; new run available after it finishes.`
                 : undefined
             }
           >
-            {inFlight
-              ? latestJob?.status === 'running'
-                ? 'Sync running…'
-                : 'Sync queued'
-              : 'Sync now'}
+            {buttonLabel}
           </Button>
         ) : null}
 

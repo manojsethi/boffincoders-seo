@@ -18,6 +18,12 @@ import { keywordsRouter } from './routes/keywords';
 import { opportunitiesRouter } from './routes/opportunities';
 import { analyticsRouter } from './routes/analytics';
 import { jobsRouter } from './routes/jobs';
+import { recommendationsRouter } from './routes/recommendations';
+import { keywordFitRouter } from './routes/keyword-fit';
+import { maintenanceRouter } from './routes/maintenance';
+import { aiRouter } from './routes/ai';
+import { contentBriefsRouter } from './routes/content-briefs';
+import { fixPlansRouter } from './routes/fix-plans';
 
 const log = getLogger('http');
 
@@ -46,6 +52,12 @@ export function createServer(): Express {
   app.use(opportunitiesRouter);
   app.use(analyticsRouter);
   app.use(jobsRouter);
+  app.use(recommendationsRouter);
+  app.use(keywordFitRouter);
+  app.use(maintenanceRouter);
+  app.use(aiRouter);
+  app.use(contentBriefsRouter);
+  app.use(fixPlansRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction): void => {
     if (err instanceof ZodError) {

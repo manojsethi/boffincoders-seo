@@ -16,6 +16,7 @@ import {
 import { Tooltip } from 'antd';
 import { cn } from '../lib/cn';
 import { ThemeToggle } from './ThemeToggle';
+import { FloatingHelp } from './FloatingHelp';
 import type { ReactNode } from 'react';
 
 const NAV = [
@@ -165,6 +166,7 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
           {children}
         </main>
       </div>
+      <FloatingHelp />
     </div>
   );
 }

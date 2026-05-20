@@ -1,11 +1,12 @@
 'use client';
 
-import { use, useEffect, useRef, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Select, Skeleton, Switch, Tabs, Tag, Tooltip } from 'antd';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import { api } from '../../../../../lib/api';
+import { ContentFitPanel } from '../../../../../components/ContentFitPanel';
 import { PageHeader } from '../../../../../components/PageHeader';
 import { SectionCard } from '../../../../../components/SectionCard';
 import { StatusPill } from '../../../../../components/StatusPill';
@@ -309,6 +310,11 @@ export default function PageDetailScreen({
             ),
           },
           { key: 'content', label: 'Content', children: <ContentTab data={data} /> },
+          {
+            key: 'fit',
+            label: 'Content fit',
+            children: <ContentFitPanel projectId={id} pageId={pageId} />,
+          },
           { key: 'links', label: 'Links', children: <LinksTab data={data} /> },
           {
             key: 'schema',
@@ -374,24 +380,61 @@ function IssuesTab({
   inactiveIssues: PageDetail['issues'];
   onOpen: (id: string) => void;
 }): JSX.Element {
+  // Pull page-scoped recommendations so each issue row can show its rec status + owner. Doc
+  // continuation §"Phase 2" requires page workspace to make this visible. Audit 2026-05-20.
+  type RecLite = {
+    status: string;
+    ownerType: string;
+    sourceIssueIds: string[];
+  };
+  const { data: pageRecs = [] } = useQuery<RecLite[]>({
+    queryKey: ['recommendations-page', projectId, pageId],
+    queryFn: () =>
+      api<RecLite[]>(`/projects/${projectId}/recommendations?pageId=${pageId}&limit=500`),
+  });
+  const recByIssue = useMemo(() => {
+    const m = new Map<string, RecLite>();
+    for (const r of pageRecs) {
+      for (const iid of r.sourceIssueIds ?? []) {
+        const existing = m.get(iid);
+        if (!existing || existing.status === 'rejected') m.set(iid, r);
+      }
+    }
+    return m;
+  }, [pageRecs]);
+
   const renderList = (list: PageDetail['issues']): JSX.Element => (
     <ul className="divide-y divide-border">
-      {list.map((i) => (
-        <li
-          key={i.id}
-          className="px-4 py-3 hover:bg-surface-hover/40 transition-colors cursor-pointer"
-          onClick={() => onOpen(i.id)}
-        >
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <StatusPill value={i.severity} kind="severity" />
-            <Tag className="m-0">{i.actionPriority}</Tag>
-            <StatusPill value={i.lifecycleStatus} kind="state" />
-            <Tag className="m-0">{i.category}</Tag>
-          </div>
-          <div className="text-sm text-text font-medium">{i.title}</div>
-          <div className="text-xs text-text-subtle mt-0.5 font-mono">{i.ruleId}</div>
-        </li>
-      ))}
+      {list.map((i) => {
+        const rec = recByIssue.get(i.id);
+        return (
+          <li
+            key={i.id}
+            className="px-4 py-3 hover:bg-surface-hover/40 transition-colors cursor-pointer"
+            onClick={() => onOpen(i.id)}
+          >
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <StatusPill value={i.severity} kind="severity" />
+              <Tag className="m-0">{i.actionPriority}</Tag>
+              <StatusPill value={i.lifecycleStatus} kind="state" />
+              <Tag className="m-0">{i.category}</Tag>
+              {rec ? (
+                <span className="inline-flex items-center gap-1 ml-1">
+                  <Tag color="purple" className="m-0 text-[10px] uppercase">
+                    Rec
+                  </Tag>
+                  <StatusPill value={rec.status} kind="state" />
+                  <span className="text-[10px] uppercase text-text-subtle">{rec.ownerType}</span>
+                </span>
+              ) : (
+                <span className="text-[10px] uppercase text-text-subtle">No recommendation</span>
+              )}
+            </div>
+            <div className="text-sm text-text font-medium">{i.title}</div>
+            <div className="text-xs text-text-subtle mt-0.5 font-mono">{i.ruleId}</div>
+          </li>
+        );
+      })}
     </ul>
   );
 

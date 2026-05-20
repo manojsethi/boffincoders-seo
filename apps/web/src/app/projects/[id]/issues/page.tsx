@@ -14,6 +14,16 @@ import { IssueDrawer } from '../../../../components/IssueDrawer';
 import { ChartContainer } from '../../../../components/charts/ChartContainer';
 import { SeverityBars } from '../../../../components/charts/SeverityBars';
 import { useIssues, type IssueRow } from '../../../../hooks/useIssues';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../../../../lib/api';
+
+type RecommendationLite = {
+  id: string;
+  status: string;
+  verdict: string;
+  ownerType: string;
+  sourceIssueIds: string[];
+};
 
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'info'];
 const STATUS_OPTIONS = [
@@ -43,11 +53,28 @@ function IssuesScreenInner({ id }: { id: string }): JSX.Element {
   const qs = pageIdFilter ? `pageId=${pageIdFilter}` : '';
   const { data, isLoading, error } = useIssues(id, qs);
 
+  const { data: recs = [] } = useQuery<RecommendationLite[]>({
+    queryKey: ['recommendations', id],
+    queryFn: () => api<RecommendationLite[]>(`/projects/${id}/recommendations?limit=1000`),
+  });
+  // First recommendation per source issue (active one wins).
+  const recByIssue = useMemo(() => {
+    const m = new Map<string, RecommendationLite>();
+    for (const r of recs) {
+      for (const iid of r.sourceIssueIds ?? []) {
+        const existing = m.get(iid);
+        if (!existing || existing.status === 'rejected') m.set(iid, r);
+      }
+    }
+    return m;
+  }, [recs]);
+
   const [search, setSearch] = useState('');
   const [severity, setSeverity] = useState<string | undefined>();
   const [status, setStatus] = useState<string | undefined>();
   const [scope, setScope] = useState<string | undefined>();
   const [priority, setPriority] = useState<string | undefined>();
+  const [recStatus, setRecStatus] = useState<string | undefined>();
   const [hideInactive, setHideInactive] = useState(true);
 
   // Drawer state is derived directly from URL — avoids a state↔URL sync race that re-opened the
@@ -62,6 +89,10 @@ function IssuesScreenInner({ id }: { id: string }): JSX.Element {
       if (status && i.lifecycleStatus !== status) return false;
       if (scope && i.scope !== scope) return false;
       if (priority && i.actionPriority !== priority) return false;
+      if (recStatus) {
+        const r = recByIssue.get(i.id);
+        if (recStatus === 'none' ? !!r : (r?.status ?? 'none') !== recStatus) return false;
+      }
       if (hideInactive && INACTIVE_LIFECYCLES.has(i.lifecycleStatus)) return false;
       if (q) {
         const hay = `${i.title} ${i.ruleId} ${i.affectedUrl ?? ''}`.toLowerCase();
@@ -69,7 +100,7 @@ function IssuesScreenInner({ id }: { id: string }): JSX.Element {
       }
       return true;
     });
-  }, [data, search, severity, status, scope, priority, hideInactive]);
+  }, [data, search, severity, status, scope, priority, hideInactive, recStatus, recByIssue]);
 
   const severityBuckets = useMemo(() => {
     const map = new Map<string, number>();
@@ -170,6 +201,24 @@ function IssuesScreenInner({ id }: { id: string }): JSX.Element {
             options={PRIORITY_OPTIONS.map((p) => ({ label: p, value: p }))}
             style={{ minWidth: 110 }}
           />
+          <Select
+            placeholder="Recommendation"
+            allowClear
+            value={recStatus}
+            onChange={setRecStatus}
+            options={[
+              { label: 'None', value: 'none' },
+              { label: 'Draft', value: 'draft' },
+              { label: 'Proposed', value: 'proposed' },
+              { label: 'Approved', value: 'approved' },
+              { label: 'Planned', value: 'planned' },
+              { label: 'In progress', value: 'in_progress' },
+              { label: 'Implemented', value: 'implemented' },
+              { label: 'Verified', value: 'verified' },
+              { label: 'Rejected', value: 'rejected' },
+            ]}
+            style={{ minWidth: 150 }}
+          />
           <label className="flex items-center gap-2 text-xs text-text-muted">
             <Switch size="small" checked={hideInactive} onChange={setHideInactive} />
             Hide inactive
@@ -255,6 +304,20 @@ function IssuesScreenInner({ id }: { id: string }): JSX.Element {
                 dataIndex: 'lifecycleStatus',
                 width: 200,
                 render: (s: string) => <StatusPill value={s} kind="state" />,
+              },
+              {
+                title: <TermLabel term="recommendation">Recommendation</TermLabel>,
+                width: 150,
+                render: (_: unknown, row: IssueRow) => {
+                  const r = recByIssue.get(row.id);
+                  if (!r) return <span className="text-text-subtle text-xs">—</span>;
+                  return (
+                    <span className="flex items-center gap-1.5">
+                      <StatusPill value={r.status} kind="state" />
+                      <span className="text-[10px] uppercase text-text-subtle">{r.ownerType}</span>
+                    </span>
+                  );
+                },
               },
               {
                 title: <TermLabel term="priority">Score</TermLabel>,

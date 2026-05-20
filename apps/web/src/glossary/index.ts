@@ -531,6 +531,104 @@ const G: Record<string, GlossaryEntry> = {
     whatGoodLooksLike: 'GSC/GA4 sync schedules running daily, weekly monitor running on Mondays.',
     whatToDoNext: 'If the schedule is missing, the recurring job needs to be re-registered at startup.',
   },
+  'content-brief': {
+    term: 'Content brief',
+    short: 'Evidence-backed plan for a single page + keyword.',
+    whatItIs:
+      'Structured brief built from mapped keyword + page content-fit + GSC + goals + audit issues. Optional AI assist enriches outline + sections. Analyst-reviewed before writing.',
+    whyItMatters:
+      'Removes "what should this page say" ambiguity. Content team gets evidence + outline + checklist instead of vague directions.',
+    howWeMeasure:
+      'One brief per (project, keyword, page, version). Evidence refs link back to keyword-fit, recommendations, GSC.',
+    whatGoodLooksLike:
+      'Briefs that get accepted, implemented, then validated via re-crawl + GSC + GA4.',
+    whatToDoNext: 'Pick a mapped keyword + click New brief. Review the suggested outline, edit, then mark Approved.',
+  },
+  'ai-assistant': {
+    term: 'AI assistant',
+    short: 'A controlled helper, not a content generator.',
+    whatItIs:
+      'A small set of audit-logged AI tasks (summarize, classify intent, suggest sections, rewrite a recommendation, explain evidence). Local-first; premium models only when explicitly chosen.',
+    whyItMatters:
+      'Speeds up analyst work without replacing rules or inventing facts. Every output is marked as suggested until the analyst accepts it.',
+    howWeMeasure:
+      'Each task call is logged with provider/model/confidence/source ids. Output schemas are validated before display.',
+    whatGoodLooksLike:
+      'Cheap, on-demand suggestions an analyst can accept, edit, or dismiss. No silent writes to evidence.',
+    whatToDoNext: 'Click an AI assist button on a page or recommendation. Review the suggestion, then accept or dismiss.',
+  },
+  'keyword-fit': {
+    term: 'Keyword fit',
+    short: 'How well a target keyword maps to a real page.',
+    whatItIs:
+      'Deterministic verdict comparing the keyword to its mapped page + ranking URL: good_fit, needs_minor_update, must_improve, wrong_page_ranking, cannibalized, create_new_page, monitor.',
+    whyItMatters:
+      'Identifies the exact action: improve the page, move the ranking to the right URL, or create a new target.',
+    howWeMeasure:
+      'GSC metrics + title/H1/meta token coverage + body word count + page role — no AI.',
+    whatGoodLooksLike: 'Most mapped keywords resolve to good_fit or needs_minor_update.',
+    whatToDoNext:
+      'Approve the linked recommendation; for must_improve/wrong_page work the recommended actions next sprint.',
+    source: 'gsc',
+  },
+  'page-fit': {
+    term: 'Content fit',
+    short: 'How well a page matches its mapped keywords + intent.',
+    whatItIs:
+      'Page-level verdict combining keyword fits, missing sections, trust signals, CTA clarity, schema, internal links, depth.',
+    whyItMatters:
+      'A page can have no audit issues yet still fail commercial intent. Content fit catches that.',
+    howWeMeasure:
+      'Heuristics over crawled markdown + audit issues + keyword-fit verdicts — strict thresholds only.',
+    whatGoodLooksLike: 'healthy or minor_update on important pages.',
+    whatToDoNext:
+      'Walk missing sections + open the linked recommendations from the page workspace.',
+  },
+  recommendation: {
+    term: 'Recommendation',
+    short: 'A specific, evidence-backed action for an issue.',
+    whatItIs:
+      'A generated proposal that translates an audit issue into: root cause, exact action, why it matters, owner, validation method.',
+    whyItMatters:
+      'A list of issues isn’t actionable on its own. Recommendations turn findings into work the team can execute and validate.',
+    howWeMeasure:
+      'Generated deterministically from the rule that fired, the finding evidence, page context, and severity.',
+    whatGoodLooksLike:
+      'Each active recommendation has a clear owner, a recommended action, and a validation step.',
+    whatToDoNext: 'Approve / edit / reject in the issue drawer. Move to Planned once it’s scheduled.',
+  },
+  'recommendation-action': {
+    term: 'Recommended action',
+    short: 'What the analyst should do.',
+    whatItIs: 'The concrete change to ship to fix the issue.',
+    whyItMatters: 'Removes ambiguity from the issue list — turns “this is wrong” into “do this.”',
+    howWeMeasure: 'Rule template + specific evidence from the finding (e.g. observed strings).',
+    whatGoodLooksLike: 'A single paragraph an SEO or developer can read and execute without back-and-forth.',
+    whatToDoNext: 'Edit if your situation needs custom wording; approve once you agree.',
+  },
+  'validation-method': {
+    term: 'Validation method',
+    short: 'How we confirm the fix worked.',
+    whatItIs: 'A specific check — re-crawl, re-audit, GSC metric movement, GA4 conversions, CWV snapshot, or analyst sign-off.',
+    whyItMatters: 'Recommendations without validation become noise. Every change must be provable.',
+    howWeMeasure: 'Each rule template ships with a validation method; analyst can edit.',
+    whatGoodLooksLike: 'Validation matches the data source that proves the change (e.g. GSC CTR for snippet changes, re-crawl for markup).',
+    whatToDoNext: 'Run the validation after the team marks the recommendation as Implemented.',
+  },
+  'fix-plan': {
+    term: 'Fix plan',
+    short: 'Execution surface for the week.',
+    whatItIs:
+      'A grouped list of recommendations, issues, opportunities, and content briefs the team will execute this week or month, each with an owner, priority, target date, and validation method.',
+    whyItMatters:
+      'Without a plan, audit findings sit in lists. The plan is what turns recommendations into shipped work.',
+    howWeMeasure:
+      'Per-item lifecycle (planned → in-progress → fixed → ready-for-validation → validated / failed-validation / deferred) plus evidence-based validation results from the same data source the item originated from.',
+    whatGoodLooksLike:
+      'A small, ranked list. Every item has an owner. Validation pulls real data — not analyst opinion.',
+    whatToDoNext:
+      'Generate weekly draft, prune what doesn\'t belong this week, run validation after work lands.',
+  },
   'experimental-rule': {
     term: 'Experimental rule',
     short: 'A new rule that is not yet trusted for client-ready reports.',
@@ -547,6 +645,14 @@ export type GlossaryTerm = keyof typeof G;
 
 export function lookupGlossary(term: string): GlossaryEntry | undefined {
   return G[term];
+}
+
+export type GlossaryListEntry = GlossaryEntry & { key: GlossaryTerm };
+
+export function listGlossaryEntries(): GlossaryListEntry[] {
+  return Object.entries(G)
+    .map(([key, entry]) => ({ ...entry, key: key as GlossaryTerm }))
+    .sort((a, b) => a.term.localeCompare(b.term));
 }
 
 export const glossary = G;

@@ -438,8 +438,11 @@ integrationsRouter.post('/projects/:id/integrations/sync', async (req, res, next
     const jobName = jobNameByProvider[body.provider];
 
     // Reject duplicate in-flight one-off syncs. Only one-off jobs (no scheduleId) count; recurring
-    // schedule wrappers may still tick separately. Doc 12 §"Cancellation must be conservative" +
-    // audit feedback 2026-05-18.
+    // schedule wrappers may still tick separately. Doc 12 §"Cancellation must be conservative".
+    //
+    // Status logic must match the jobs router (Doc continuation §"Phase 1"): a locked job is
+    // still running when lastFinishedAt is missing OR older than lockedAt — that finish belongs
+    // to a previous attempt, so the current lock has no completion yet. Audit 2026-05-20.
     const env = loadEnv();
     const db = mongoose.connection.db;
     if (db) {
@@ -448,14 +451,25 @@ integrationsRouter.post('/projects/:id/integrations/sync', async (req, res, next
         'data.projectId': req.params.id,
         'data.scheduleId': { $exists: false },
         $or: [
-          { lockedAt: { $ne: null }, lastFinishedAt: null },
-          { nextRunAt: { $ne: null }, lastFinishedAt: null },
+          // Running: locked, with no finish since the lock began
+          {
+            lockedAt: { $ne: null },
+            $expr: {
+              $or: [
+                { $eq: ['$lastFinishedAt', null] },
+                { $lt: ['$lastFinishedAt', '$lockedAt'] },
+              ],
+            },
+          },
+          // Queued: scheduled to run and not yet started, no prior finish
+          { nextRunAt: { $ne: null }, lockedAt: null, lastFinishedAt: null },
         ],
       });
       if (inFlight) {
         const status = inFlight.lockedAt ? 'running' : 'queued';
         res.status(409).json({
           error: `A ${body.provider.toUpperCase()} sync is already ${status} for this project.`,
+          provider: body.provider,
           status,
         });
         return;

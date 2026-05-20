@@ -5,8 +5,8 @@ const AIAnalysisSchema = new Schema(
     projectId: { type: Types.ObjectId, required: true, index: true },
     sourceCrawlRunId: { type: Types.ObjectId },
     sourceAuditRunId: { type: Types.ObjectId },
-    modelProvider: { type: String, required: true },
-    modelName: { type: String, required: true },
+    modelProvider: { type: String, default: '' },
+    modelName: { type: String, default: '' },
     costEstimate: { type: Number, default: 0 },
     inputSummary: { type: Schema.Types.Mixed, default: {} },
     websiteProfileSuggestion: { type: Schema.Types.Mixed, default: {} },
@@ -19,6 +19,8 @@ const AIAnalysisSchema = new Schema(
     approvedAt: { type: Date },
     status: { type: String, default: 'queued' },
     error: { type: String },
+    // Link back to the underlying AiTaskRun so analyst can audit which task call produced this.
+    aiTaskRunId: { type: Types.ObjectId },
   },
   { collection: 'ai_analyses', timestamps: true },
 );
