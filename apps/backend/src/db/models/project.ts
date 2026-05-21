@@ -9,6 +9,9 @@ const ProjectSchema = new Schema(
     allowedDomains: { type: [String], default: [] },
     includeSubdomains: { type: Boolean, default: false },
     status: { type: String, enum: ['active', 'paused', 'archived'], default: 'active' },
+    archivedAt: { type: Date },
+    archivedReason: { type: String },
+    archivedBy: { type: String }, // reserved for auth phase
     lifecycleState: { type: String, default: 'needs-setup' },
 
     // Phase A reserves slot. Goals UX lands in Phase E.

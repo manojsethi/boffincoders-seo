@@ -13,6 +13,7 @@ import {
 import { getAgenda, JOB_NAMES } from '../../jobs/agenda';
 import { loadEnv } from '../../config/env';
 import { getLogger } from '../../config/logger';
+import { requireActiveProject } from '../middleware/active-project';
 import {
   decryptTokens,
   encryptTokens,
@@ -423,9 +424,10 @@ const SyncBody = z.object({
   maxUrls: z.number().int().min(1).max(100).optional(),
 });
 
-integrationsRouter.post('/projects/:id/integrations/sync', async (req, res, next) => {
+integrationsRouter.post('/projects/:id/integrations/sync', requireActiveProject, async (req, res, next) => {
   try {
-    if (!Types.ObjectId.isValid(req.params.id)) {
+    const pid = String(req.params.id ?? '');
+    if (!Types.ObjectId.isValid(pid)) {
       res.status(400).json({ error: 'invalid project id' });
       return;
     }
@@ -448,7 +450,7 @@ integrationsRouter.post('/projects/:id/integrations/sync', async (req, res, next
     if (db) {
       const inFlight = await db.collection(env.AGENDA_COLLECTION).findOne({
         name: jobName,
-        'data.projectId': req.params.id,
+        'data.projectId': pid,
         'data.scheduleId': { $exists: false },
         $or: [
           // Running: locked, with no finish since the lock began
@@ -477,7 +479,7 @@ integrationsRouter.post('/projects/:id/integrations/sync', async (req, res, next
     }
 
     const agenda = getAgenda();
-    const baseData: Record<string, unknown> = { projectId: req.params.id, trigger: 'manual' };
+    const baseData: Record<string, unknown> = { projectId: pid, trigger: 'manual' };
     if (body.provider === 'cwv') baseData.maxUrls = body.maxUrls ?? 10;
     await agenda.now(jobName, baseData);
     res.status(202).json({ queued: body.provider });

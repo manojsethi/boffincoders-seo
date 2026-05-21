@@ -77,6 +77,7 @@ Read and execute in this order:
 7. `07-phase-6-fix-plans-validation-and-reporting.md`
 8. `08-phase-7-optional-paid-data-providers.md`
 9. `09-authentication-last.md`
+10. `10-navigation-project-workflow-archive-reset.md`
 
 ## Do Not Build Yet
 
@@ -105,4 +106,3 @@ Do not mark a phase complete unless:
 - no secrets or raw tokens are exposed.
 - no parallel/duplicate data model was introduced.
 - implementation is connected to the existing product flow.
-

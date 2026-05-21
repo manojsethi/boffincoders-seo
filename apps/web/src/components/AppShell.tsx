@@ -3,169 +3,172 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Drawer, Tooltip } from 'antd';
 import {
-  LayoutDashboard,
   FolderKanban,
+  LayoutDashboard,
+  ListChecks,
+  Menu as MenuIcon,
   Settings as SettingsIcon,
   Sparkles,
-  Activity,
-  ListChecks,
-  PanelLeftClose,
-  PanelLeftOpen,
+  X,
 } from 'lucide-react';
-import { Tooltip } from 'antd';
 import { cn } from '../lib/cn';
 import { ThemeToggle } from './ThemeToggle';
 import { FloatingHelp } from './FloatingHelp';
+import { ProjectSwitcher } from './ProjectSwitcher';
 import type { ReactNode } from 'react';
 
-const NAV = [
-  { href: '/', label: 'Workspace', icon: LayoutDashboard },
-  { href: '/projects', label: 'Projects', icon: FolderKanban },
-  { href: '/workspace/jobs', label: 'Jobs', icon: ListChecks },
-  { href: '/settings', label: 'Settings', icon: SettingsIcon },
-];
+/**
+ * Global app shell. Phase 10 navigation pass.
+ *
+ * Workspace-level only. No project modules here — those live in the project sidebar (see
+ * `ProjectShell`). Designed to stay compact: logo + 3 workspace links + project switcher (only
+ * inside a project) + theme + help. Mobile collapses links into a drawer.
+ */
 
-const COLLAPSE_KEY = 'boffin.sidebar.collapsed';
+const NAV = [
+  { href: '/', label: 'Workspace', icon: LayoutDashboard, match: (p: string) => p === '/' },
+  {
+    href: '/projects',
+    label: 'Projects',
+    icon: FolderKanban,
+    match: (p: string) => p === '/projects' || p === '/projects/new',
+  },
+  {
+    href: '/workspace/jobs',
+    label: 'Jobs',
+    icon: ListChecks,
+    match: (p: string) => p.startsWith('/workspace/jobs'),
+  },
+  {
+    href: '/settings',
+    label: 'Settings',
+    icon: SettingsIcon,
+    match: (p: string) => p === '/settings' || p.startsWith('/settings/'),
+  },
+];
 
 export function AppShell({ children }: { children: ReactNode }): JSX.Element {
   const pathname = usePathname() ?? '/';
-  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Close the mobile drawer whenever route changes — analyst expects a link tap to navigate AND
+  // dismiss the menu.
   useEffect(() => {
-    try {
-      const v = window.localStorage.getItem(COLLAPSE_KEY);
-      if (v === '1') setCollapsed(true);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+    setMobileOpen(false);
+  }, [pathname]);
 
-  const toggle = (): void => {
-    setCollapsed((c) => {
-      const next = !c;
-      try {
-        window.localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
+  const isInProject = /^\/projects\/[a-f0-9]{24}/i.test(pathname);
+  // Project routes get their own padded main from ProjectShell. Everything else (workspace
+  // overview, project list, global settings, etc.) needs page-level padding here, otherwise
+  // content runs to viewport edges.
+  const needsPagePadding = !isInProject;
 
   return (
-    <div className="min-h-screen flex bg-bg text-text">
-      <aside
-        className={cn(
-          'hidden md:flex shrink-0 flex-col border-r border-border bg-surface/40 backdrop-blur-sm',
-          // Sidebar stays pinned + scrolls internally, never elongates with page content.
-          'sticky top-0 h-screen overflow-y-auto',
-          collapsed ? 'w-14' : 'w-60',
-          'transition-[width] duration-150',
-        )}
-        aria-label="Primary navigation"
-      >
-        <div
-          className={cn(
-            'h-14 flex items-center gap-2 border-b border-border',
-            collapsed ? 'px-2 justify-center' : 'px-4',
-          )}
-        >
-          <span className="grid h-7 w-7 place-items-center rounded-md bg-accent text-text-onaccent shrink-0">
+    <div className="min-h-screen flex flex-col bg-bg text-text">
+      <header className="sticky top-0 z-30 h-14 flex items-center gap-3 px-3 md:px-5 border-b border-border bg-surface/85 backdrop-blur-md">
+        <Link href="/" className="flex items-center gap-2 shrink-0">
+          <span className="grid h-7 w-7 place-items-center rounded-md bg-accent text-text-onaccent">
             <Sparkles size={14} />
           </span>
-          {!collapsed ? (
-            <Link
-              href="/"
-              className="text-sm font-semibold tracking-tight text-text truncate"
-            >
-              Boffin SEO
-              <span className="ml-1 text-text-subtle text-[10px] uppercase tracking-wider">v2</span>
-            </Link>
-          ) : null}
-        </div>
-        <nav className={cn('flex-1 py-3 space-y-0.5', collapsed ? 'px-1.5' : 'px-2')}>
+          <span className="font-semibold tracking-tight text-sm hidden sm:inline">
+            Boffin SEO
+            <span className="ml-1 text-text-subtle text-[10px] uppercase tracking-wider">v2</span>
+          </span>
+        </Link>
+
+        <div className="flex-1" />
+
+        <nav className="hidden md:flex items-center gap-1">
           {NAV.map((item) => {
-            const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+            const active = item.match(pathname);
             const Icon = item.icon;
-            const linkEl = (
+            return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  'group flex items-center gap-2.5 rounded-md text-sm transition-colors',
-                  collapsed ? 'justify-center px-2 py-2' : 'px-3 py-1.5',
+                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors',
                   active
                     ? 'bg-accent-soft text-text'
                     : 'text-text-muted hover:bg-surface-hover hover:text-text',
                 )}
               >
-                <Icon
-                  size={15}
-                  className={cn(
-                    'transition-colors shrink-0',
-                    active ? 'text-accent-hover' : 'text-text-subtle group-hover:text-text-muted',
-                  )}
-                />
-                {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                <Icon size={14} className={active ? 'text-accent-hover' : 'text-text-subtle'} />
+                <span>{item.label}</span>
               </Link>
-            );
-            return collapsed ? (
-              <Tooltip key={item.href} title={item.label} placement="right">
-                {linkEl}
-              </Tooltip>
-            ) : (
-              linkEl
             );
           })}
         </nav>
-        <div
-          className={cn(
-            'border-t border-border flex items-center gap-2 py-3',
-            collapsed ? 'flex-col px-1.5' : 'justify-between px-3',
-          )}
-        >
-          {!collapsed ? (
-            <div className="flex items-center gap-2 text-xs text-text-subtle">
-              <Activity size={12} />
-              <span>Local</span>
-            </div>
-          ) : (
-            <Activity size={12} className="text-text-subtle" />
-          )}
-          <div className="flex items-center gap-1">
-            <ThemeToggle />
-            <Tooltip
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              placement="right"
-            >
-              <button
-                type="button"
-                onClick={toggle}
-                className="grid h-7 w-7 place-items-center rounded-md text-text-subtle hover:bg-surface-hover hover:text-text"
-                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              >
-                {collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-      </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden h-14 flex items-center justify-between gap-2 px-4 border-b border-border bg-surface/40 backdrop-blur-sm">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <span className="grid h-7 w-7 place-items-center rounded-md bg-accent text-text-onaccent">
-              <Sparkles size={14} />
-            </span>
-            Boffin SEO
-          </Link>
-          <ThemeToggle />
-        </header>
-        <main className="flex-1 min-w-0 mx-auto w-full max-w-[1320px] px-4 md:px-8 py-6">
-          {children}
-        </main>
-      </div>
+        {isInProject ? (
+          <div className="hidden md:block">
+            <ProjectSwitcher />
+          </div>
+        ) : null}
+
+        <Tooltip title="Toggle theme" placement="bottom">
+          <span>
+            <ThemeToggle />
+          </span>
+        </Tooltip>
+
+        <button
+          type="button"
+          className="md:hidden grid h-9 w-9 place-items-center rounded-md hover:bg-surface-hover"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+        >
+          <MenuIcon size={18} />
+        </button>
+      </header>
+
+      <main
+        className={cn(
+          'flex-1 min-w-0',
+          needsPagePadding && 'mx-auto w-full max-w-[1320px] px-4 md:px-8 py-6',
+        )}
+      >
+        {children}
+      </main>
+
+      <Drawer
+        placement="right"
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        closeIcon={<X size={16} />}
+        width={280}
+        title="Workspace"
+      >
+        <div className="space-y-1">
+          {NAV.map((item) => {
+            const active = item.match(pathname);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
+                  active
+                    ? 'bg-accent-soft text-text'
+                    : 'text-text-muted hover:bg-surface-hover hover:text-text',
+                )}
+              >
+                <Icon size={14} />
+                {item.label}
+              </Link>
+            );
+          })}
+          {isInProject ? (
+            <div className="pt-3 border-t border-border mt-3">
+              <ProjectSwitcher />
+            </div>
+          ) : null}
+        </div>
+      </Drawer>
+
       <FloatingHelp />
     </div>
   );

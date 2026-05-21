@@ -4,12 +4,13 @@ import { CrawlRunModel, AuditRunModel, AIAnalysisModel } from '../../db';
 import { StartCrawlInput } from '@boffin/schemas';
 import { createCrawlRun, createAuditRun, createAIAnalysis } from '../../domain';
 import { getAgenda, JOB_NAMES } from '../../jobs';
+import { requireActiveProject } from '../middleware/active-project';
 
 export const runsRouter = Router();
 
-runsRouter.post('/projects/:id/crawl', async (req, res, next) => {
+runsRouter.post('/projects/:id/crawl', requireActiveProject, async (req, res, next) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id ?? "");
     if (!Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: 'invalid id' });
       return;
@@ -59,9 +60,9 @@ runsRouter.get('/projects/:id/crawl-runs', async (req, res, next) => {
   }
 });
 
-runsRouter.post('/projects/:id/audit', async (req, res, next) => {
+runsRouter.post('/projects/:id/audit', requireActiveProject, async (req, res, next) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id ?? "");
     if (!Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: 'invalid id' });
       return;
@@ -111,9 +112,9 @@ runsRouter.get('/projects/:id/audit-runs', async (req, res, next) => {
   }
 });
 
-runsRouter.post('/projects/:id/ai-analysis', async (req, res, next) => {
+runsRouter.post('/projects/:id/ai-analysis', requireActiveProject, async (req, res, next) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id ?? "");
     if (!Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: 'invalid id' });
       return;

@@ -12,6 +12,16 @@ import {
 import { ProjectCreateInput, ProjectUpdateInput } from '@boffin/schemas';
 import { createProject, syncLifecycleState, nextActionFor } from '../../domain';
 import { ACTIVE_LIFECYCLE_STATUSES } from '../../audit/lifecycle';
+import {
+  archiveProject,
+  restoreProject,
+  previewReset,
+  performReset,
+  getRunningProjectJobs,
+  type ResetMode,
+  type ResetOptions,
+} from '../../projects/reset';
+import { z } from 'zod';
 
 export const projectsRouter = Router();
 
@@ -25,9 +35,20 @@ projectsRouter.post('/projects', async (req, res, next) => {
   }
 });
 
-projectsRouter.get('/projects', async (_req, res, next) => {
+projectsRouter.get('/projects', async (req, res, next) => {
   try {
-    const projects = await ProjectModel.find({ status: { $ne: 'archived' } })
+    // `status=all` or `includeArchived=1` overrides the default archived-hidden filter so the
+    // global project switcher can surface archived projects when the analyst opts in.
+    const wantAll =
+      req.query.status === 'all' ||
+      req.query.includeArchived === '1' ||
+      req.query.includeArchived === 'true';
+    const filter: Record<string, unknown> =
+      wantAll ? {} : { status: { $ne: 'archived' } };
+    if (req.query.status && req.query.status !== 'all') {
+      filter.status = req.query.status;
+    }
+    const projects = await ProjectModel.find(filter)
       .sort({ updatedAt: -1 })
       .limit(200)
       .lean();
@@ -202,6 +223,120 @@ projectsRouter.get('/projects/:id/overview', async (req, res, next) => {
   }
 });
 
+// ----- Archive / restore / reset (Phase 10) -----
+
+const ArchiveSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+projectsRouter.post('/projects/:id/archive', async (req, res, next) => {
+  try {
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({ error: 'invalid id' });
+      return;
+    }
+    const body = ArchiveSchema.parse(req.body ?? {});
+    const r = await archiveProject(req.params.id, body.reason);
+    res.json(r);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+projectsRouter.post('/projects/:id/restore', async (req, res, next) => {
+  try {
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({ error: 'invalid id' });
+      return;
+    }
+    const r = await restoreProject(req.params.id);
+    res.json(r);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+const ResetPreviewSchema = z.object({
+  mode: z.enum(['fresh-audit-baseline', 'performance-data', 'execution-data', 'full']),
+  options: z
+    .object({
+      keepGoals: z.boolean().optional(),
+      keepIntegrations: z.boolean().optional(),
+      keepCrawlSettings: z.boolean().optional(),
+      keepMonitoringSettings: z.boolean().optional(),
+    })
+    .optional(),
+});
+projectsRouter.post('/projects/:id/reset/preview', async (req, res, next) => {
+  try {
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({ error: 'invalid id' });
+      return;
+    }
+    const body = ResetPreviewSchema.parse(req.body);
+    const r = await previewReset(req.params.id, body.mode as ResetMode, body.options ?? {});
+    res.json(r);
+  } catch (err) {
+    next(err);
+  }
+});
+
+const ResetSchema = ResetPreviewSchema.extend({
+  confirmText: z.string(),
+  cancelRunningJobs: z.boolean().optional().default(false),
+});
+projectsRouter.post('/projects/:id/reset', async (req, res, next) => {
+  try {
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({ error: 'invalid id' });
+      return;
+    }
+    const body = ResetSchema.parse(req.body);
+    if (body.confirmText !== 'RESET PROJECT') {
+      res.status(400).json({ error: 'confirmText must be exactly "RESET PROJECT"' });
+      return;
+    }
+    const r = await performReset(
+      req.params.id,
+      body.mode as ResetMode,
+      (body.options ?? {}) as ResetOptions,
+      body.cancelRunningJobs ?? false,
+    );
+    res.json(r);
+  } catch (err) {
+    const e = err as { statusCode?: number; message?: string };
+    if (e.statusCode === 409) {
+      res.status(409).json({ error: e.message });
+      return;
+    }
+    if (err instanceof Error && err.message.includes('not found')) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+projectsRouter.get('/projects/:id/running-jobs', async (req, res, next) => {
+  try {
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({ error: 'invalid id' });
+      return;
+    }
+    const r = await getRunningProjectJobs(req.params.id);
+    res.json(r);
+  } catch (err) {
+    next(err);
+  }
+});
+
 async function enrichTopIssues(
   projectId: Types.ObjectId,
   issues: Array<Record<string, unknown>>,
@@ -246,6 +381,8 @@ function toDTO(p: Record<string, unknown>): Record<string, unknown> {
     allowedDomains: p.allowedDomains,
     includeSubdomains: p.includeSubdomains,
     status: p.status,
+    archivedAt: p.archivedAt ?? null,
+    archivedReason: p.archivedReason ?? null,
     lifecycleState: p.lifecycleState,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,

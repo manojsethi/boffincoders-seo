@@ -4,6 +4,7 @@ import { Types } from 'mongoose';
 import { ReportModel } from '../../db';
 import { createReportDraft } from '../../domain';
 import { getAgenda, JOB_NAMES } from '../../jobs';
+import { requireActiveProject } from '../middleware/active-project';
 
 const GenerateReport = z.object({
   type: z.enum(['initial-audit', 'weekly-progress', 'monthly-progress', 'verification', 'internal']),
@@ -16,11 +17,12 @@ const GenerateReport = z.object({
 
 export const reportsRouter = Router();
 
-reportsRouter.post('/projects/:id/reports', async (req, res, next) => {
+reportsRouter.post('/projects/:id/reports', requireActiveProject, async (req, res, next) => {
   try {
+    const pid = String(req.params.id ?? '');
     const body = GenerateReport.parse(req.body);
     const draft = await createReportDraft({
-      projectId: req.params.id,
+      projectId: pid,
       type: body.type,
       view: body.view,
       crawlRunId: body.crawlRunId,
@@ -29,7 +31,7 @@ reportsRouter.post('/projects/:id/reports', async (req, res, next) => {
       periodEnd: body.periodEnd ? new Date(body.periodEnd) : undefined,
     });
     await getAgenda().now(JOB_NAMES.generateReport, {
-      projectId: req.params.id,
+      projectId: pid,
       reportId: draft.id,
       type: body.type,
       view: body.view,

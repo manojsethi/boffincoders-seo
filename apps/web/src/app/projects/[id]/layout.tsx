@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ProjectSubNav } from '../../../components/ProjectSubNav';
+import { ProjectShell } from '../../../components/ProjectShell';
 
 export default async function ProjectLayout({
   params,
@@ -9,10 +9,5 @@ export default async function ProjectLayout({
   children: ReactNode;
 }): Promise<JSX.Element> {
   const { id } = await params;
-  return (
-    <>
-      <ProjectSubNav projectId={id} />
-      {children}
-    </>
-  );
+  return <ProjectShell projectId={id}>{children}</ProjectShell>;
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Types } from 'mongoose';
 import { RenderRunModel } from '../../db';
 import { getAgenda, JOB_NAMES } from '../../jobs/agenda';
+import { requireActiveProject } from '../middleware/active-project';
 
 const RenderBody = z.object({
   pageIds: z.array(z.string()).min(1).max(50),
@@ -15,16 +16,17 @@ export const renderRouter = Router();
  * Enqueue a rendered (Playwright) recrawl run. Doc 11 §"Rendered Verification Controls".
  * Returns a render run id immediately; the UI polls /render-runs/:id for progress.
  */
-renderRouter.post('/projects/:id/render-recrawl', async (req, res, next) => {
+renderRouter.post('/projects/:id/render-recrawl', requireActiveProject, async (req, res, next) => {
   try {
-    if (!Types.ObjectId.isValid(req.params.id)) {
+    const pid = String(req.params.id ?? '');
+    if (!Types.ObjectId.isValid(pid)) {
       res.status(400).json({ error: 'invalid project id' });
       return;
     }
     const body = RenderBody.parse(req.body);
 
     const run = await RenderRunModel.create({
-      projectId: new Types.ObjectId(req.params.id),
+      projectId: new Types.ObjectId(pid),
       pageIds: body.pageIds.map((p) => new Types.ObjectId(p)),
       reason: body.reason ?? 'analyst-triggered',
       status: 'queued',
@@ -33,7 +35,7 @@ renderRouter.post('/projects/:id/render-recrawl', async (req, res, next) => {
 
     const agenda = getAgenda();
     await agenda.now(JOB_NAMES.renderRecrawl, {
-      projectId: req.params.id,
+      projectId: pid,
       renderRunId: String(run._id),
     });
 
