@@ -1,6 +1,9 @@
 import { Types } from 'mongoose';
 import {
   ProjectModel,
+  CrawlCandidateModel,
+  UrlGroupModel,
+  CrawlScopeRuleModel,
   CrawlRunModel,
   PageModel,
   PageContentModel,
@@ -152,6 +155,13 @@ function modelsForMode(
     { key: 'findings', model: FindingModel },
     { key: 'issues', model: IssueModel },
     { key: 'recommendations', model: RecommendationModel },
+    // Phase 11 audit fix: opportunities are derived from crawl/audit/GSC + page evidence. After
+    // wiping the underlying audit baseline they'd point at deleted rows. Wipe + let the
+    // post-baseline run regenerate from the fresh data.
+    { key: 'opportunities', model: OpportunityModel },
+    // Phase 11 P2 #6 — scope candidates + groups belong to the wiped crawl run.
+    { key: 'crawlCandidates', model: CrawlCandidateModel },
+    { key: 'urlGroups', model: UrlGroupModel },
     { key: 'keywordFits', model: KeywordFitModel },
     { key: 'renderRuns', model: RenderRunModel },
     { key: 'robotsCache', model: RobotsCacheModel },
@@ -185,6 +195,8 @@ function modelsForMode(
     { key: 'aiTaskRuns', model: AiTaskRunModel },
     { key: 'websiteProfile', model: WebsiteProfileModel },
     { key: 'schedules', model: ScheduleModel },
+    // Phase 11 P2 #6 — wipe analyst/AI-defined scope rules on full reset.
+    { key: 'crawlScopeRules', model: CrawlScopeRuleModel },
   ] as Array<{ key: string; model: Model<unknown> }>;
 }
 
@@ -199,7 +211,6 @@ function keptKeysFor(mode: ResetMode, options: ResetOptions): string[] {
       'crawlSettings',
       'monitoringSettings (paused)',
       'keywords',
-      'opportunities',
       'gsc/ga4/cwv data',
       'reports',
       'fix plans',

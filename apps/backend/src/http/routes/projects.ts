@@ -390,6 +390,13 @@ function toDTO(p: Record<string, unknown>): Record<string, unknown> {
     lastAuditedAt: p.lastAuditedAt ?? null,
     lastReportedAt: p.lastReportedAt ?? null,
     nextScheduledRunAt: p.nextScheduledRunAt ?? null,
+    crawlScopeSettings: (p.crawlScopeSettings as Record<string, unknown> | undefined) ?? {
+      enabled: true,
+      defaultBehavior: 'crawl',
+      maxSamplePerGroup: 5,
+      aiSuggestionsEnabled: true,
+      requireApprovalForAiRules: true,
+    },
     crawlSettings: (p.crawlSettings as Record<string, unknown> | undefined) ?? {
       renderMode: 'cheerio-with-playwright-fallback',
       maxRenderedPages: 25,

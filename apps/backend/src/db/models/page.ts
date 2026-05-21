@@ -41,7 +41,19 @@ const PageSchema = new Schema(
     isImportant: { type: Boolean, default: false },
     isIntentionallyNonIndexable: { type: Boolean, default: false },
     lastCrawledAt: { type: Date },
+    lastCrawlRunId: { type: Types.ObjectId, index: true },
     contentHash: { type: String },
+    // Phase 11 — crawl-scope provenance. Used by audit + UI to explain template-level findings
+    // (e.g. "sampled 5 of 412" / "template-level issue, validate by re-sampling").
+    crawlScopeDecision: {
+      type: String,
+      enum: ['crawl', 'sampled', 'force_included'],
+      default: 'crawl',
+    },
+    urlGroupId: { type: Types.ObjectId },
+    urlGroupName: { type: String },
+    scopeRuleId: { type: Types.ObjectId },
+    sampleReason: { type: String, default: '' },
   },
   { collection: 'pages', timestamps: true },
 );

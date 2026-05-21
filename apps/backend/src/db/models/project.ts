@@ -54,6 +54,22 @@ const ProjectSchema = new Schema(
       default: () => ({}),
     },
 
+    // Phase 11. Project-level toggles for crawl scope; per-rule details live in
+    // `CrawlScopeRuleModel`. Defaults keep the feature opt-in friendly: enabled true, sample
+    // default 5, AI suggestions require approval.
+    crawlScopeSettings: {
+      type: new Schema(
+        {
+          enabled: { type: Boolean, default: true },
+          defaultBehavior: { type: String, enum: ['crawl', 'sample'], default: 'crawl' },
+          maxSamplePerGroup: { type: Number, default: 5 },
+          aiSuggestionsEnabled: { type: Boolean, default: true },
+          requireApprovalForAiRules: { type: Boolean, default: true },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
     lastCrawledAt: { type: Date },
     lastAuditedAt: { type: Date },
     lastReportedAt: { type: Date },

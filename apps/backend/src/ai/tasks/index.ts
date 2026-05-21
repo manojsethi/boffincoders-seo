@@ -823,4 +823,97 @@ Key metrics: ${JSON.stringify(p.keyMetrics ?? {})}`,
   }),
 });
 
+// 17. Crawl scope suggestions (Phase 11). AI proposes scope rules from discovery candidates +
+//     project profile. Never silently applied — output is stored as suggestions for analyst
+//     review.
+
+registerTask({
+  key: 'suggest-crawl-scope-rules',
+  label: 'Suggest crawl scope rules',
+  description:
+    'Propose crawl/sample/exclude rules from discovered URL groups + project category + goals. Stored as `suggested` only — analyst must approve before they affect crawls.',
+  affects: ['project'],
+  riskLevel: 'medium',
+  tier: 'cheap',
+  promptTemplateVersion: 'v1',
+  maxInputChars: 8000,
+  maxOutputTokens: 1400,
+  needsAnalystReview: true,
+  buildPrompt: (p: {
+    siteCategory?: string;
+    goals?: Array<{ type: string; label?: string }>;
+    candidateGroups: Array<{
+      name: string;
+      pattern: string;
+      discovered: number;
+      examples: string[];
+      behavior?: string;
+    }>;
+    existingRules?: Array<{ pattern: string; behavior: string }>;
+  }) => ({
+    system: `You design SEO crawl scope rules. Reply ONLY with valid JSON.
+Strict rules:
+- Use only the provided groups + counts. Never invent groups or numbers.
+- Default to crawl-all unless evidence (group size, page family) clearly supports sampling.
+- Prefer sample limits in the 3-8 range.
+- Recommend exclude only for known noise (tag archives, search, feeds, login/cart). Never exclude a group whose family is service/product/location/campaign/course on the matching site type.
+- Add a warning when a sampled/excluded group conflicts with stated goals.`,
+    user: `Propose crawl scope rules. Output JSON:
+{
+  "suggestions": [
+    {
+      "groupName": "...",
+      "pattern": "/...",
+      "patternType": "glob",
+      "behavior": "crawl|sample|exclude|force_include",
+      "sampleLimit": 5,
+      "pageFamily": "...",
+      "reason": "...",
+      "riskIfWrong": "...",
+      "confidence": 0.0-1.0
+    }
+  ],
+  "warnings": [
+    { "message": "...", "severity": "low|medium|high" }
+  ],
+  "confidence": 0.0-1.0
+}
+
+Site category: ${p.siteCategory ?? '(unknown)'}
+Goals: ${JSON.stringify(p.goals ?? [])}
+Existing rules: ${JSON.stringify(p.existingRules ?? [])}
+
+Candidate groups:
+${JSON.stringify(p.candidateGroups, null, 0)}`,
+  }),
+  outputSchema: z.object({
+    suggestions: z
+      .array(
+        z.object({
+          groupName: z.string().max(120),
+          pattern: z.string().max(400),
+          patternType: z.enum(['glob', 'prefix', 'regex']).default('glob'),
+          behavior: z.enum(['crawl', 'sample', 'exclude', 'force_include']),
+          sampleLimit: z.number().int().min(1).max(200).optional(),
+          pageFamily: z.string().max(60).optional().default(''),
+          reason: z.string().max(500).optional().default(''),
+          riskIfWrong: z.string().max(500).optional().default(''),
+          confidence: z.number().min(0).max(1).optional(),
+        }),
+      )
+      .max(40)
+      .default([]),
+    warnings: z
+      .array(
+        z.object({
+          message: z.string().max(400),
+          severity: z.enum(['low', 'medium', 'high']).default('medium'),
+        }),
+      )
+      .max(20)
+      .default([]),
+    confidence: z.number().min(0).max(1).optional(),
+  }),
+});
+
 export {};

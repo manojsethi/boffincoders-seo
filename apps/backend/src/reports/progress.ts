@@ -11,6 +11,8 @@ import {
   SiteConnectionModel,
   FixPlanModel,
   ContentBriefModel,
+  UrlGroupModel,
+  CrawlRunModel,
 } from '../db';
 import type { ReportSection } from './initial-audit';
 
@@ -464,6 +466,46 @@ export async function buildProgressReport(opts: {
       title: 'Fix plan progress',
       body: '_No active fix plan. Open the Fix plans tab and click "Generate weekly plan" to start one._',
     });
+  }
+
+  // 8d. Crawl scope coverage (Phase 11 P2 #7). Show how the last crawl sampled / excluded URL
+  //     families so client + analyst reports both convey what was actually checked.
+  const latestCrawl = await CrawlRunModel.findOne({ projectId })
+    .sort({ createdAt: -1 })
+    .select({ _id: 1 })
+    .lean();
+  if (latestCrawl) {
+    const scopeGroups = await UrlGroupModel.find({ projectId, crawlRunId: latestCrawl._id })
+      .sort({ discoveredCount: -1 })
+      .lean();
+    const sampled = scopeGroups.filter((g) => g.behavior === 'sample' && g.discoveredCount > g.sampledCount);
+    const excluded = scopeGroups.filter((g) => g.behavior === 'exclude' && g.discoveredCount > 0);
+    if (scopeGroups.length > 0) {
+      sections.push({
+        key: 'crawl-scope',
+        title: 'Crawl coverage',
+        body: [
+          `Latest crawl evaluated **${scopeGroups.reduce((a, g) => a + g.discoveredCount, 0)}** URLs across **${scopeGroups.length}** URL groups.`,
+          '',
+          sampled.length > 0 ? '**Sampled sections** (template-level evidence):' : '',
+          ...sampled
+            .slice(0, opts.view === 'client' ? 5 : 15)
+            .map(
+              (g) =>
+                `- **${g.name}** \`${g.pattern}\` — sampled **${g.sampledCount}** of **${g.discoveredCount}** discovered URLs${opts.view === 'internal' && g.crawledCount ? ` (actually crawled: ${g.crawledCount})` : ''}.`,
+            ),
+          excluded.length > 0 && opts.view === 'internal' ? '' : '',
+          excluded.length > 0 && opts.view === 'internal'
+            ? `**Excluded sections** (not in scope): ${excluded.slice(0, 8).map((g) => `${g.name} (${g.discoveredCount})`).join(', ')}.`
+            : '',
+          sampled.length > 0
+            ? '_Sampled groups: any repeated issue in the sample is treated as a template-level finding rather than per-page._'
+            : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      });
+    }
   }
 
   // 8c. Approved content briefs in period

@@ -78,6 +78,7 @@ Read and execute in this order:
 8. `08-phase-7-optional-paid-data-providers.md`
 9. `09-authentication-last.md`
 10. `10-navigation-project-workflow-archive-reset.md`
+11. `11-crawl-scope-rules-url-pattern-grouping.md`
 
 ## Do Not Build Yet
 

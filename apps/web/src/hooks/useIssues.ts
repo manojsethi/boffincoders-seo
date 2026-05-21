@@ -87,6 +87,19 @@ export type IssueDetail = {
     statusCode: number | null;
     indexability: string | null;
     canonicalUrl: string | null;
+    urlGroupName: string | null;
+    crawlScopeDecision: string;
+    sampleReason: string;
+  } | null;
+  templateContext: {
+    inGroup: boolean;
+    groupName: string | null;
+    pattern: string | null;
+    discoveredCount: number;
+    sampledCount: number;
+    sampledAffected: number;
+    likelyTemplateLevel: boolean;
+    recommendation: string;
   } | null;
   currentFinding: {
     id: string;

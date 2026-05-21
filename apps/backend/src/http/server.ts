@@ -24,6 +24,8 @@ import { maintenanceRouter } from './routes/maintenance';
 import { aiRouter } from './routes/ai';
 import { contentBriefsRouter } from './routes/content-briefs';
 import { fixPlansRouter } from './routes/fix-plans';
+import { auditRulesRouter } from './routes/audit-rules';
+import { crawlScopeRouter } from './routes/crawl-scope';
 
 const log = getLogger('http');
 
@@ -58,6 +60,8 @@ export function createServer(): Express {
   app.use(aiRouter);
   app.use(contentBriefsRouter);
   app.use(fixPlansRouter);
+  app.use(auditRulesRouter);
+  app.use(crawlScopeRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction): void => {
     if (err instanceof ZodError) {

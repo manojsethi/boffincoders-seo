@@ -110,6 +110,39 @@ export function IssueDrawer({
             )}
           </div>
 
+          {data.templateContext?.inGroup ? (
+            <div
+              className={`rounded border px-3 py-2 text-xs ${
+                data.templateContext.likelyTemplateLevel
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                  : 'border-border bg-surface-2 text-text-muted'
+              }`}
+            >
+              <div className="font-medium text-text mb-1">
+                Template context · {data.templateContext.groupName}
+              </div>
+              <div>
+                Detected in <strong>{data.templateContext.sampledAffected}</strong> of{' '}
+                <strong>{data.templateContext.sampledCount}</strong> sampled pages.{' '}
+                {data.templateContext.discoveredCount > data.templateContext.sampledCount ? (
+                  <>
+                    Group has <strong>{data.templateContext.discoveredCount}</strong> discovered
+                    URLs total — only sampled pages are verified.
+                  </>
+                ) : null}
+              </div>
+              <div className="mt-1">{data.templateContext.recommendation}</div>
+            </div>
+          ) : null}
+
+          {data.page?.urlGroupName && data.page.crawlScopeDecision !== 'crawl' ? (
+            <div className="rounded border border-border bg-surface-2 px-3 py-2 text-xs text-text-muted">
+              <span className="text-text-subtle">Scope:</span>{' '}
+              <Tag className="m-0">{data.page.crawlScopeDecision.replace('_', ' ')}</Tag>{' '}
+              {data.page.sampleReason ? <span>· {data.page.sampleReason}</span> : null}
+            </div>
+          ) : null}
+
           {issueId ? <RecommendationCard projectId={projectId} issueId={issueId} /> : null}
 
           <Section title="Evidence" term="evidence">

@@ -22,6 +22,9 @@ import { renderRecrawlPages } from './render';
 import { ProjectModel } from '../db';
 import { guessPageRole } from './page-role';
 import { emptyDiagnostics, bumpReason, computeHealth, type Diagnostics } from './diagnostics';
+import { runDiscovery } from './scope/discover';
+import { ScopeMatcher, toScopeRuleLite } from './scope/apply';
+import { CrawlScopeRuleModel, UrlGroupModel, CrawlCandidateModel } from '../db';
 
 const log = getLogger('crawler:orchestrator');
 const DEFAULT_UA = 'BoffinSEO/2.0 (+https://boffincoders.com/seo-bot)';
@@ -71,20 +74,123 @@ export async function runCrawl(opts: CrawlOptions): Promise<CrawlResult> {
 
   const seen = new Set<string>();
   const frontier: Array<{ url: string; depth: number }> = [];
-
+  // Phase 11. Run discovery-with-scope so frontier already reflects approved rule decisions.
+  // Each frontier entry carries its decided group + sample reason so the per-page write can
+  // stamp `crawlScopeDecision`, `urlGroupName`, etc.
+  const scopeMeta = new Map<
+    string,
+    { decision: 'crawl' | 'sampled' | 'force_included'; groupName: string; ruleId: string | null; sampleReason: string }
+  >();
   const seedNorm = normalizeUrl(seedUrl);
-  if (seedNorm) {
-    seen.add(seedNorm);
-    frontier.push({ url: seedNorm, depth: 0 });
-  }
-  for (const s of sitemap.urls) {
-    if (!isSameSite(s.loc, opts.primaryDomain, opts.includeSubdomains)) continue;
-    if (seen.has(s.loc)) continue;
-    seen.add(s.loc);
-    frontier.push({ url: s.loc, depth: 1 });
-    if (seen.size >= opts.maxPages * 4) break;
+  // P2 #4. Honor crawlScopeSettings.enabled — if explicitly disabled, fall back to seed +
+  // sitemap and skip discovery entirely.
+  const projectForScope = await ProjectModel.findById(new Types.ObjectId(opts.projectId))
+    .select({ crawlScopeSettings: 1 })
+    .lean();
+  const scopeEnabled =
+    (projectForScope as { crawlScopeSettings?: { enabled?: boolean } } | null)?.crawlScopeSettings
+      ?.enabled !== false;
+  try {
+    if (!scopeEnabled) throw new Error('scope-disabled');
+    const discovery = await runDiscovery({
+      projectId: opts.projectId,
+      seedUrl,
+      maxPages: opts.maxPages,
+      previewSuggested: false,
+      persistForCrawlRunId: opts.crawlRunId,
+    });
+    for (const f of discovery.selectedFrontier) {
+      if (seen.has(f.url)) continue;
+      if (!isSameSite(f.url, opts.primaryDomain, opts.includeSubdomains)) continue;
+      seen.add(f.url);
+      const dec: 'crawl' | 'sampled' | 'force_included' =
+        f.sampleReason === 'analyst-forced'
+          ? 'force_included'
+          : f.sampleReason
+          ? 'sampled'
+          : 'crawl';
+      scopeMeta.set(f.url, {
+        decision: dec,
+        groupName: f.groupName,
+        ruleId: f.ruleId,
+        sampleReason: f.sampleReason,
+      });
+      frontier.push({ url: f.url, depth: f.source === 'seed' ? 0 : 1 });
+    }
+    // Always include seed even if it didn't show up in discovery (edge case for tiny sites).
+    if (seedNorm && !seen.has(seedNorm)) {
+      seen.add(seedNorm);
+      frontier.push({ url: seedNorm, depth: 0 });
+      scopeMeta.set(seedNorm, { decision: 'crawl', groupName: 'Homepage', ruleId: null, sampleReason: '' });
+    }
+    diagnostics.scope = {
+      discoveredCandidates: discovery.totals.discovered,
+      selectedForCrawl: discovery.totals.selected,
+      excludedByRules: discovery.totals.excluded,
+      sampledGroups: discovery.groups.filter((g) => g.behavior === 'sample').length,
+      forceIncluded: discovery.totals.forceIncluded,
+      normalizedDuplicates: discovery.totals.normalizedDuplicates,
+      groups: discovery.groups.map((g) => ({
+        name: g.name,
+        pattern: g.pattern,
+        behavior: g.behavior,
+        discovered: g.discovered,
+        selected: g.selected,
+        excluded: g.excluded,
+        sampleLimit: g.sampleLimit,
+      })),
+    };
+  } catch (err) {
+    // Fall back to old behavior if scope discovery fails — never block a crawl on scope. Also
+    // taken when crawlScopeSettings.enabled === false.
+    log.warn(
+      { err: (err as Error).message, scopeEnabled },
+      'scope discovery skipped; falling back to seed+sitemap',
+    );
+    if (seedNorm) {
+      seen.add(seedNorm);
+      frontier.push({ url: seedNorm, depth: 0 });
+    }
+    for (const s of sitemap.urls) {
+      if (!isSameSite(s.loc, opts.primaryDomain, opts.includeSubdomains)) continue;
+      if (seen.has(s.loc)) continue;
+      seen.add(s.loc);
+      frontier.push({ url: s.loc, depth: 1 });
+      if (seen.size >= opts.maxPages * 4) break;
+    }
   }
   diagnostics.discoveredCount = seen.size;
+
+  // Live matcher for links discovered during fetch — apply scope rules before adding to frontier.
+  // P1 #1 audit: when crawlScopeSettings.enabled === false, build an empty matcher so the
+  // live link-discovery path also bypasses scope. Otherwise links found mid-crawl would still
+  // get filtered by approved rules even though the analyst disabled scope.
+  const liveRules = scopeEnabled
+    ? (
+        await CrawlScopeRuleModel.find({
+          projectId: new Types.ObjectId(opts.projectId),
+          status: 'approved',
+        })
+          .sort({ priority: -1 })
+          .lean()
+      ).map(toScopeRuleLite)
+    : [];
+  const liveMatcher = new ScopeMatcher(liveRules);
+  const sampleQuotaByGroup = new Map<string, { used: number; limit: number }>();
+  for (const c of scopeMeta.values()) {
+    if (c.decision === 'sampled') {
+      const cur = sampleQuotaByGroup.get(c.groupName) ?? { used: 0, limit: 0 };
+      cur.used += 1;
+      sampleQuotaByGroup.set(c.groupName, cur);
+    }
+  }
+  for (const r of liveRules) {
+    if (r.behavior !== 'sample') continue;
+    const gn = r.groupName || r.name;
+    const cur = sampleQuotaByGroup.get(gn) ?? { used: 0, limit: 0 };
+    cur.limit = r.sampleLimit;
+    sampleQuotaByGroup.set(gn, cur);
+  }
 
   let crawled = 0;
   let markdownCount = 0;
@@ -117,6 +223,7 @@ export async function runCrawl(opts: CrawlOptions): Promise<CrawlResult> {
           crawl4aiUrl: env.CRAWL4AI_URL,
           primaryDomain: opts.primaryDomain,
           includeSubdomains: opts.includeSubdomains,
+          scopeMeta: scopeMeta.get(next.url),
         });
         if (result.kind === 'ok') {
           crawled += 1;
@@ -128,9 +235,126 @@ export async function runCrawl(opts: CrawlOptions): Promise<CrawlResult> {
             (diagnostics.pageRoleDistribution[result.role] ?? 0) + 1;
           if (result.redirectChainCount > 0) diagnostics.redirectChainCount += 1;
 
-          for (const link of result.discoveredLinks) {
-            if (seen.has(link)) continue;
-            if (!isSameSite(link, opts.primaryDomain, opts.includeSubdomains)) continue;
+          for (const rawLink of result.discoveredLinks) {
+            if (!isSameSite(rawLink, opts.primaryDomain, opts.includeSubdomains)) continue;
+            // P2 audit round 3: apply analyst-defined normalize rules before deciding. Strip the
+            // union of `normalizeStripParams` from the URL query so links discovered mid-crawl
+            // dedupe the same way discovery-phase ones do.
+            let link = rawLink;
+            const normMatches = liveMatcher.normalizeMatches(rawLink);
+            if (normMatches.length > 0) {
+              const stripParams = new Set<string>();
+              for (const m of normMatches) {
+                for (const p of m.normalizeStripParams ?? []) stripParams.add(p);
+              }
+              if (stripParams.size > 0) {
+                try {
+                  const u = new URL(rawLink);
+                  let touched = false;
+                  for (const p of stripParams) {
+                    if (u.searchParams.has(p)) {
+                      u.searchParams.delete(p);
+                      touched = true;
+                    }
+                  }
+                  if (touched) {
+                    const renorm = normalizeUrl(u.toString());
+                    if (renorm) link = renorm;
+                  }
+                } catch {
+                  /* keep raw */
+                }
+              }
+            }
+            if (seen.has(link)) {
+              if (link !== rawLink) {
+                // Original URL was a query-variant; record as normalized duplicate.
+                await recordSkippedCandidate(
+                  projectId,
+                  crawlRunId,
+                  rawLink,
+                  { id: '', name: 'normalize', groupName: 'normalized', pattern: '', reason: 'Query params stripped — duplicate of canonical URL' },
+                  'normalized_duplicate',
+                  `Normalized to ${link}`,
+                );
+                diagnostics.scope = diagnostics.scope ?? {
+                  discoveredCandidates: 0,
+                  selectedForCrawl: 0,
+                  excludedByRules: 0,
+                  sampledGroups: 0,
+                  forceIncluded: 0,
+                  normalizedDuplicates: 0,
+                  groups: [],
+                };
+                diagnostics.scope.normalizedDuplicates += 1;
+              }
+              continue;
+            }
+            // Phase 11. Apply scope rules to discovered internal links before adding to frontier
+            // so exclude/sample patterns also cover URLs found mid-crawl. force_include wins.
+            // P2 #4 audit: also persist excluded/sample-full skips as CrawlCandidate so the
+            // analyst can inspect every URL skipped because of scope (not just the discovery
+            // ones from sitemap/homepage).
+            const decision = liveMatcher.decide(link);
+            if (decision) {
+              if (decision.behavior === 'exclude') {
+                seen.add(link);
+                diagnostics.skippedCount += 1;
+                bumpReason(diagnostics.skippedReasons, `scope-exclude:${decision.rule.groupName || decision.rule.name}`);
+                await recordSkippedCandidate(
+                  projectId,
+                  crawlRunId,
+                  link,
+                  decision.rule,
+                  'excluded',
+                  decision.rule.reason || 'Excluded by scope rule',
+                );
+                continue;
+              }
+              if (decision.behavior === 'normalize') {
+                // Normalize-only doesn't gate enqueue.
+              }
+              if (decision.behavior === 'sample') {
+                const gn = decision.rule.groupName || decision.rule.name;
+                const cur = sampleQuotaByGroup.get(gn) ?? { used: 0, limit: decision.rule.sampleLimit };
+                if (cur.used >= cur.limit) {
+                  seen.add(link);
+                  diagnostics.skippedCount += 1;
+                  bumpReason(diagnostics.skippedReasons, `scope-sample-full:${gn}`);
+                  await recordSkippedCandidate(
+                    projectId,
+                    crawlRunId,
+                    link,
+                    decision.rule,
+                    'excluded',
+                    `Sample limit reached (${cur.limit}) for ${gn}`,
+                  );
+                  continue;
+                }
+                cur.used += 1;
+                sampleQuotaByGroup.set(gn, cur);
+                scopeMeta.set(link, {
+                  decision: 'sampled',
+                  groupName: gn,
+                  ruleId: decision.rule.id,
+                  sampleReason: 'discovered-mid-crawl',
+                });
+              } else if (decision.behavior === 'force_include') {
+                scopeMeta.set(link, {
+                  decision: 'force_included',
+                  groupName: decision.rule.groupName || decision.rule.name,
+                  ruleId: decision.rule.id,
+                  sampleReason: 'analyst-forced',
+                });
+              } else {
+                scopeMeta.set(link, {
+                  decision: 'crawl',
+                  groupName: decision.rule.groupName || decision.rule.name,
+                  ruleId: decision.rule.id,
+                  sampleReason: '',
+                });
+              }
+            }
             seen.add(link);
             if (seen.size >= opts.maxPages * 4) break;
             frontier.push({ url: link, depth: next.depth + 1 });
@@ -160,8 +384,12 @@ export async function runCrawl(opts: CrawlOptions): Promise<CrawlResult> {
   diagnostics.healthStatus = computeHealth(diagnostics);
 
   // Recompute pageRoleDistribution from authoritative Page records (post-extract role inference
-  // can reclassify pages relative to the incremental count built during fetch).
-  const pageDocs = await PageModel.find({ projectId }).select({ pageRole: 1 }).lean();
+  // can reclassify pages relative to the incremental count built during fetch). P2 audit fix —
+  // scope to pages stamped with THIS crawl run so the distribution reflects only what the
+  // current scope produced, not legacy pages from prior crawls.
+  const pageDocs = await PageModel.find({ projectId, lastCrawlRunId: crawlRunId })
+    .select({ pageRole: 1 })
+    .lean();
   const freshDist: Record<string, number> = {};
   for (const p of pageDocs) {
     const r = (p.pageRole as string | undefined) ?? 'unknown';
@@ -173,6 +401,24 @@ export async function runCrawl(opts: CrawlOptions): Promise<CrawlResult> {
     { _id: crawlRunId },
     { $set: { diagnostics, counts: { pages: crawled, markdown: markdownCount } } },
   );
+
+  // P2 #5. Update UrlGroup.crawledCount from actual Page documents written this run, so the
+  // analyst sees discovered vs sampled vs crawled accurately.
+  try {
+    const crawledByGroup = await PageModel.aggregate<{ _id: string; count: number }>([
+      { $match: { projectId, lastCrawlRunId: crawlRunId, urlGroupName: { $ne: null } } },
+      { $group: { _id: '$urlGroupName', count: { $sum: 1 } } },
+    ]);
+    for (const row of crawledByGroup) {
+      if (!row._id) continue;
+      await UrlGroupModel.updateMany(
+        { projectId, crawlRunId, name: row._id },
+        { $set: { crawledCount: row.count } },
+      );
+    }
+  } catch (err) {
+    log.warn({ err: (err as Error).message }, 'url-group crawledCount update failed');
+  }
 
   // Doc 04 §"Project-level crawl/render policy" — auto-render selected pages per project settings.
   await maybeAutoRender({
@@ -274,6 +520,12 @@ type CrawlOneInput = {
   crawl4aiUrl: string;
   primaryDomain: string;
   includeSubdomains: boolean;
+  scopeMeta?: {
+    decision: 'crawl' | 'sampled' | 'force_included';
+    groupName: string;
+    ruleId: string | null;
+    sampleReason: string;
+  };
 };
 
 type CrawlOneResult =
@@ -367,7 +619,15 @@ async function crawlOne(input: CrawlOneInput): Promise<CrawlOneResult> {
         roleSource: role.source,
         roleInferredAt: new Date(),
         lastCrawledAt: new Date(),
+        lastCrawlRunId: input.crawlRunId,
         contentHash,
+        // Phase 11 — stamp scope provenance so the audit/UI can show template-level context.
+        crawlScopeDecision: input.scopeMeta?.decision ?? 'crawl',
+        urlGroupName: input.scopeMeta?.groupName ?? undefined,
+        scopeRuleId: input.scopeMeta?.ruleId
+          ? new Types.ObjectId(input.scopeMeta.ruleId)
+          : undefined,
+        sampleReason: input.scopeMeta?.sampleReason ?? '',
       },
     },
     { upsert: true, new: true },
@@ -464,6 +724,47 @@ function uniqueHosts(domains: string[]): string[] {
     if (h) set.add(h);
   }
   return [...set];
+}
+
+/**
+ * P2 #4 audit. Persist a mid-crawl scope skip as a CrawlCandidate so the analyst can inspect
+ * every URL the live scope matcher rejected, not just the discovery-phase ones. Best-effort: if
+ * the URL is already a candidate (e.g. discovery already recorded it), the unique index swallows
+ * the insert.
+ */
+async function recordSkippedCandidate(
+  projectId: Types.ObjectId,
+  crawlRunId: Types.ObjectId,
+  url: string,
+  rule: { id: string; name: string; groupName: string; pattern: string; reason: string },
+  decision: 'excluded' | 'out_of_scope' | 'normalized_duplicate',
+  reason: string,
+): Promise<void> {
+  try {
+    await CrawlCandidateModel.updateOne(
+      { projectId, crawlRunId, normalizedUrl: url },
+      {
+        $setOnInsert: {
+          projectId,
+          crawlRunId,
+          url,
+          normalizedUrl: url,
+          source: 'link',
+          matchedRuleId: rule.id ? new Types.ObjectId(rule.id) : undefined,
+          matchedRuleName: rule.name,
+          groupName: rule.groupName || rule.name,
+          groupPattern: rule.pattern,
+          decision,
+          reason,
+          sampleReason: '',
+          selectedForCrawl: false,
+        },
+      },
+      { upsert: true },
+    );
+  } catch {
+    /* race / duplicate is fine */
+  }
 }
 
 async function reportProgress(crawlRunId: Types.ObjectId, pct: number, step: string): Promise<void> {

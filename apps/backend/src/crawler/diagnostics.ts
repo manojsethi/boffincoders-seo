@@ -13,6 +13,24 @@ export type Diagnostics = {
   healthStatus: 'healthy' | 'needs-review' | 'unreliable';
   skippedReasons: Array<{ reason: string; count: number }>;
   failedReasons: Array<{ reason: string; count: number }>;
+  // Phase 11 — scope summary. Optional so older runs still validate.
+  scope?: {
+    discoveredCandidates: number;
+    selectedForCrawl: number;
+    excludedByRules: number;
+    sampledGroups: number;
+    forceIncluded: number;
+    normalizedDuplicates: number;
+    groups: Array<{
+      name: string;
+      pattern: string;
+      behavior: string;
+      discovered: number;
+      selected: number;
+      excluded: number;
+      sampleLimit: number;
+    }>;
+  };
 };
 
 export function emptyDiagnostics(): Diagnostics {

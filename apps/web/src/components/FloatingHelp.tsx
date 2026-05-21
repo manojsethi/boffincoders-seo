@@ -1,13 +1,15 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Drawer, Empty, FloatButton, Input, Tabs, Tag } from 'antd';
+import { Drawer, Empty, FloatButton, Input, Select, Tabs, Tag } from 'antd';
+import { useQuery } from '@tanstack/react-query';
 import { BookOpenCheck, CircleHelp, Search } from 'lucide-react';
 import {
   listGlossaryEntries,
   type GlossaryEntry,
   type GlossaryListEntry,
 } from '../glossary';
+import { api } from '../lib/api';
 
 const SOURCE_LABEL: Record<NonNullable<GlossaryEntry['source']>, string> = {
   crawl: 'Crawl',
@@ -101,6 +103,41 @@ const GUIDE_STEPS = [
   },
 ];
 
+type AuditRuleRow = {
+  id: string;
+  version: string;
+  name: string;
+  scope: 'page' | 'site';
+  category: string;
+  layer: string;
+  pack: string;
+  scoresInto: string;
+  description: string;
+  whyItMatters: string;
+  recommendationTemplate: string;
+  defaultSeverity: string;
+  defaultImpact: number;
+  defaultEffort: string;
+  defaultValidationMethod: string | null;
+  reportVisibility: string;
+  ownerHint: string | null;
+  lifecycle: string;
+  requiredInputs: string[];
+  optionalInputs: string[];
+};
+
+type AuditRulesResponse = {
+  summary: {
+    total: number;
+    active: number;
+    experimental: number;
+    byLayer: Record<string, number>;
+    byCategory: Record<string, number>;
+    bySeverity: Record<string, number>;
+  };
+  rules: AuditRuleRow[];
+};
+
 function matchesEntry(entry: GlossaryListEntry, query: string): boolean {
   if (!query) return true;
   const haystack = [
@@ -113,6 +150,30 @@ function matchesEntry(entry: GlossaryListEntry, query: string): boolean {
     entry.whatGoodLooksLike,
     entry.whatToDoNext,
     entry.source ?? '',
+  ]
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(query.toLowerCase());
+}
+
+function matchesRule(rule: AuditRuleRow, query: string): boolean {
+  if (!query) return true;
+  const haystack = [
+    rule.id,
+    rule.name,
+    rule.scope,
+    rule.category,
+    rule.layer,
+    rule.pack,
+    rule.description,
+    rule.whyItMatters,
+    rule.recommendationTemplate,
+    rule.defaultSeverity,
+    rule.defaultEffort,
+    rule.ownerHint ?? '',
+    rule.lifecycle,
+    ...rule.requiredInputs,
+    ...rule.optionalInputs,
   ]
     .join(' ')
     .toLowerCase();
@@ -228,6 +289,175 @@ function GlossaryPanel(): JSX.Element {
   );
 }
 
+function AuditRulesPanel(): JSX.Element {
+  const [query, setQuery] = useState('');
+  const [layer, setLayer] = useState<string>('all');
+  const [severity, setSeverity] = useState<string>('all');
+  const [category, setCategory] = useState<string>('all');
+
+  const { data, isLoading, error } = useQuery<AuditRulesResponse>({
+    queryKey: ['help-audit-rules'],
+    queryFn: () => api<AuditRulesResponse>('/audit-rules'),
+  });
+
+  const rules = data?.rules ?? [];
+  const categories = useMemo(
+    () => [...new Set(rules.map((r) => r.category))].sort(),
+    [rules],
+  );
+  const layers = useMemo(() => [...new Set(rules.map((r) => r.layer))].sort(), [rules]);
+  const severities = useMemo(
+    () => [...new Set(rules.map((r) => r.defaultSeverity))].sort(),
+    [rules],
+  );
+
+  const filtered = useMemo(
+    () =>
+      rules.filter((rule) => {
+        if (!matchesRule(rule, query.trim())) return false;
+        if (layer !== 'all' && rule.layer !== layer) return false;
+        if (severity !== 'all' && rule.defaultSeverity !== severity) return false;
+        if (category !== 'all' && rule.category !== category) return false;
+        return true;
+      }),
+    [rules, query, layer, severity, category],
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-border bg-surface/70 p-4">
+        <p className="text-sm text-text-muted">
+          These are the audit rules currently implemented in the product. Use this tab to learn
+          what each rule checks, why it matters, who usually owns the fix, and how the fix should
+          be validated.
+        </p>
+        {data ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Tag>Total {data.summary.total}</Tag>
+            <Tag color="green">Active {data.summary.active}</Tag>
+            {data.summary.experimental > 0 ? (
+              <Tag color="orange">Experimental {data.summary.experimental}</Tag>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-2">
+        <Input
+          allowClear
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          prefix={<Search size={15} className="text-text-subtle" />}
+          placeholder="Search rules, categories, inputs, or fixes"
+          aria-label="Search audit rules"
+        />
+        <div className="grid grid-cols-3 gap-2">
+          <Select
+            value={layer}
+            onChange={setLayer}
+            options={[
+              { value: 'all', label: 'All layers' },
+              ...layers.map((v) => ({ value: v, label: v })),
+            ]}
+          />
+          <Select
+            value={category}
+            onChange={setCategory}
+            options={[
+              { value: 'all', label: 'All categories' },
+              ...categories.map((v) => ({ value: v, label: v })),
+            ]}
+          />
+          <Select
+            value={severity}
+            onChange={setSeverity}
+            options={[
+              { value: 'all', label: 'All severity' },
+              ...severities.map((v) => ({ value: v, label: v })),
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="text-xs text-text-subtle">
+        {isLoading
+          ? 'Loading audit rules...'
+          : `Showing ${filtered.length} of ${rules.length} rules`}
+      </div>
+
+      {error ? (
+        <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+          Audit rules could not be loaded. Check that the backend is running.
+        </div>
+      ) : filtered.length === 0 && !isLoading ? (
+        <Empty description="No matching audit rules" />
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((rule) => (
+            <article
+              key={rule.id}
+              className="rounded-lg border border-border bg-surface/70 p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-text">{rule.name}</h3>
+                  <p className="mt-1 break-all text-xs text-text-subtle">{rule.id}</p>
+                </div>
+                <div className="flex flex-wrap justify-end gap-1">
+                  <Tag>{rule.scope}</Tag>
+                  <Tag>{rule.defaultSeverity}</Tag>
+                  <Tag>{rule.lifecycle}</Tag>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <Tag>{rule.layer}</Tag>
+                <Tag>{rule.category}</Tag>
+                <Tag>{rule.pack}</Tag>
+                {rule.ownerHint ? <Tag>owner: {rule.ownerHint}</Tag> : null}
+                <Tag>impact: {rule.defaultImpact}</Tag>
+                <Tag>effort: {rule.defaultEffort}</Tag>
+              </div>
+
+              <dl className="mt-4 grid gap-3 text-sm">
+                <div>
+                  <dt className="font-medium text-text">What it checks</dt>
+                  <dd className="mt-1 text-text-muted">{rule.description}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-text">Why it matters</dt>
+                  <dd className="mt-1 text-text-muted">{rule.whyItMatters}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-text">Recommended fix</dt>
+                  <dd className="mt-1 text-text-muted">{rule.recommendationTemplate}</dd>
+                </div>
+                {rule.defaultValidationMethod ? (
+                  <div>
+                    <dt className="font-medium text-text">How to validate</dt>
+                    <dd className="mt-1 text-text-muted">{rule.defaultValidationMethod}</dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt className="font-medium text-text">Data needed</dt>
+                  <dd className="mt-1 flex flex-wrap gap-1">
+                    {rule.requiredInputs.map((input) => (
+                      <Tag key={input}>{input}</Tag>
+                    ))}
+                    {rule.optionalInputs.map((input) => (
+                      <Tag key={input}>optional: {input}</Tag>
+                    ))}
+                  </dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FloatingHelp(): JSX.Element {
   const [open, setOpen] = useState(false);
 
@@ -235,7 +465,7 @@ export function FloatingHelp(): JSX.Element {
     <>
       <FloatButton
         icon={<CircleHelp size={18} />}
-        tooltip="Tool guide and glossary"
+        tooltip="Tool guide, audit rules, and glossary"
         onClick={() => setOpen(true)}
         className="!right-5 !bottom-5"
       />
@@ -254,6 +484,7 @@ export function FloatingHelp(): JSX.Element {
         <Tabs
           items={[
             { key: 'guide', label: 'How to use', children: <GuidePanel /> },
+            { key: 'rules', label: 'Audit rules', children: <AuditRulesPanel /> },
             { key: 'glossary', label: 'Glossary', children: <GlossaryPanel /> },
           ]}
         />

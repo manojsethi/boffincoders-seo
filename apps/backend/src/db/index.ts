@@ -28,3 +28,6 @@ export { MaintenanceRunModel } from './models/maintenance-run';
 export { AiTaskRunModel } from './models/ai-task-run';
 export { ContentBriefModel } from './models/content-brief';
 export { FixPlanModel } from './models/fix-plan';
+export { CrawlScopeRuleModel } from './models/crawl-scope-rule';
+export { UrlGroupModel } from './models/url-group';
+export { CrawlCandidateModel } from './models/crawl-candidate';

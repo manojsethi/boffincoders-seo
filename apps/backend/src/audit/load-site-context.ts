@@ -23,13 +23,25 @@ export async function loadSiteContext(opts: {
   const auditRunId = new Types.ObjectId(opts.auditRunId);
   const crawlRunId = new Types.ObjectId(opts.crawlRunId);
 
-  const [project, profile, crawlRun, pages] = await Promise.all([
+  const [project, profile, crawlRun] = await Promise.all([
     ProjectModel.findById(projectId).lean(),
     WebsiteProfileModel.findOne({ projectId }).lean(),
     CrawlRunModel.findById(crawlRunId).lean(),
-    PageModel.find({ projectId }).lean(),
   ]);
   if (!project) throw new Error(`Project not found: ${opts.projectId}`);
+
+  // Phase 11 — scope audit to pages produced by THIS crawl run. Otherwise audit logic considers
+  // pages from prior crawls that may now be excluded/sampled-out, defeating the scope feature.
+  // Prefer `lastCrawlRunId` (set by orchestrator); fall back to `lastCrawledAt >= crawlRun.startedAt`
+  // for pages stamped before the field landed.
+  const crawlStartedAt = (crawlRun as { startedAt?: Date } | null)?.startedAt ?? null;
+  const pages = await PageModel.find({
+    projectId,
+    $or: [
+      { lastCrawlRunId: crawlRunId },
+      ...(crawlStartedAt ? [{ lastCrawledAt: { $gte: crawlStartedAt } }] : []),
+    ],
+  }).lean();
 
   const contentByPage = new Map<string, { markdown: string; cleanText: string; wordCount: number }>();
   const contents = await PageContentModel.find({ projectId, crawlRunId }).lean();

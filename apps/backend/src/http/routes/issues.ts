@@ -1,8 +1,73 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Types } from 'mongoose';
-import { IssueModel, FindingModel, PageModel, AuditRunModel } from '../../db';
+import { IssueModel, FindingModel, PageModel, AuditRunModel, UrlGroupModel } from '../../db';
 import { syncLifecycleState } from '../../domain';
+
+/**
+ * Phase 11 — Template-level context for issue drawer. If the issue is on a page that belongs
+ * to a URL group (sampled or force-included), count how many sampled pages in the same group
+ * carry an issue with the same ruleId. Used to render "5 of 5 sampled affected; likely
+ * template-level" guidance without claiming all discovered pages are affected.
+ */
+async function buildTemplateContext(
+  projectId: Types.ObjectId,
+  issue: Record<string, unknown>,
+): Promise<{
+  inGroup: boolean;
+  groupName: string | null;
+  pattern: string | null;
+  discoveredCount: number;
+  sampledCount: number;
+  sampledAffected: number;
+  likelyTemplateLevel: boolean;
+  recommendation: string;
+} | null> {
+  const pageId = issue.pageId as Types.ObjectId | undefined;
+  if (!pageId) return null;
+  const page = await PageModel.findOne({ _id: pageId, projectId })
+    .select({ urlGroupName: 1, crawlScopeDecision: 1 })
+    .lean();
+  const groupName = (page as { urlGroupName?: string } | null)?.urlGroupName ?? null;
+  if (!groupName) return null;
+  const group = await UrlGroupModel.findOne({ projectId, name: groupName })
+    .sort({ createdAt: -1 })
+    .lean();
+  // All sampled pages in the same group on this project.
+  const sampledPages = await PageModel.find({
+    projectId,
+    urlGroupName: groupName,
+    crawlScopeDecision: { $in: ['sampled', 'force_included'] },
+  })
+    .select({ _id: 1 })
+    .lean();
+  const sampledIds = sampledPages.map((p) => p._id);
+  // How many of those pages have an issue with the same ruleId?
+  let sampledAffected = 0;
+  if (sampledIds.length > 0) {
+    sampledAffected = await IssueModel.countDocuments({
+      projectId,
+      ruleId: issue.ruleId as string,
+      pageId: { $in: sampledIds },
+    });
+  }
+  const sampledCount = sampledIds.length;
+  const likely =
+    sampledCount >= 2 && sampledAffected >= Math.ceil(sampledCount * 0.6);
+  const discovered = group?.discoveredCount ?? sampledCount;
+  return {
+    inGroup: true,
+    groupName,
+    pattern: group?.pattern ?? null,
+    discoveredCount: discovered,
+    sampledCount,
+    sampledAffected,
+    likelyTemplateLevel: likely,
+    recommendation: likely
+      ? `Detected in ${sampledAffected} of ${sampledCount} sampled pages. Likely a template-level issue — fix the ${groupName} template, then re-sample to validate.`
+      : `Detected in ${sampledAffected} of ${sampledCount} sampled pages. Investigate as a per-page issue first; widen sample if more pages are affected.`,
+  };
+}
 
 const PatchIssue = z.object({
   lifecycleStatus: z
@@ -176,6 +241,9 @@ issuesRouter.get('/projects/:id/issues/:issueId', async (req, res, next) => {
               statusCode: 1,
               indexability: 1,
               canonicalUrl: 1,
+              urlGroupName: 1,
+              crawlScopeDecision: 1,
+              sampleReason: 1,
             })
             .lean()
         : null,
@@ -229,8 +297,13 @@ issuesRouter.get('/projects/:id/issues/:issueId', async (req, res, next) => {
             statusCode: page.statusCode ?? null,
             indexability: page.indexability ?? null,
             canonicalUrl: page.canonicalUrl ?? null,
+            urlGroupName: (page as { urlGroupName?: string }).urlGroupName ?? null,
+            crawlScopeDecision:
+              (page as { crawlScopeDecision?: string }).crawlScopeDecision ?? 'crawl',
+            sampleReason: (page as { sampleReason?: string }).sampleReason ?? '',
           }
         : null,
+      templateContext: await buildTemplateContext(pid, issue),
       currentFinding: currentFinding
         ? {
             id: String(currentFinding._id),

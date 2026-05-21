@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Drawer, Popover, Tooltip } from 'antd';
 import { useQuery } from '@tanstack/react-query';
@@ -152,7 +152,16 @@ const GROUPS: Group[] = [
         label: 'Issues',
         href: (id) => `/projects/${id}/issues`,
         icon: AlertTriangle,
-        match: (path, id) => startsWith(`/projects/${id}/issues`)(path),
+        match: (path, id) =>
+          startsWith(`/projects/${id}/issues`)(path) && !/[?&]rec=/.test(path),
+      },
+      {
+        key: 'recommendations',
+        label: 'Recommendations',
+        href: (id) => `/projects/${id}/issues?rec=draft`,
+        icon: Sparkles,
+        match: (path, id) =>
+          startsWith(`/projects/${id}/issues`)(path) && /[?&]rec=/.test(path),
       },
     ],
   },
@@ -271,7 +280,12 @@ export function ProjectShell({
   projectId: string;
   children: React.ReactNode;
 }): JSX.Element {
-  const pathname = usePathname() ?? '';
+  const rawPathname = usePathname() ?? '';
+  const searchParams = useSearchParams();
+  // We compose pathname + search so sidebar match() can distinguish Issues vs Recommendations
+  // (same /issues route, differing `?rec=` query).
+  const search = searchParams?.toString() ?? '';
+  const pathname = search ? `${rawPathname}?${search}` : rawPathname;
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
