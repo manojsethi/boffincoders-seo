@@ -163,6 +163,25 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<DiscoveryRes
   if (seedNorm) {
     seen.set(seedNorm, { url: seedUrl, normalizedUrl: seedNorm, source: 'seed' });
   }
+  // Phase 12 audit fix #2: seed force_include rule URLs directly as candidates so analyst-marked
+  // important pages enter the frontier even if sitemap/homepage/GSC don't surface them.
+  for (const r of rules) {
+    if (r.behavior !== 'force_include') continue;
+    // Only literal-path patterns can be turned into a URL — glob/regex don't enumerate URLs.
+    if (r.patternType !== 'prefix' && r.patternType !== 'glob') continue;
+    if (!r.pattern.startsWith('/')) continue;
+    if (r.pattern.includes('*')) continue;
+    const url = `https://${project.primaryDomain}${r.pattern}`;
+    const n = normalizeUrl(url);
+    if (!n) continue;
+    if (!seen.has(n)) {
+      seen.set(n, {
+        url,
+        normalizedUrl: n,
+        source: 'analyst',
+      });
+    }
+  }
   for (const s of sitemap.urls) {
     if (!isSameSite(s.loc, project.primaryDomain, !!project.includeSubdomains)) continue;
     const n = normalizeUrl(s.loc);
@@ -688,7 +707,21 @@ async function persistDiscovery(
  */
 export async function ensureDefaultScopeRules(projectId: string): Promise<void> {
   const pid = new Types.ObjectId(projectId);
-  const existing = await CrawlScopeRuleModel.countDocuments({ projectId: pid });
+  // Audit fix #3: remove legacy `**/*.pdf` system excludes so the analyst's PDF choice from
+  // onboarding actually controls behavior. Older projects may still carry the rule from before
+  // it was carved out of defaults.
+  await CrawlScopeRuleModel.deleteMany({
+    projectId: pid,
+    source: 'system',
+    pattern: '**/*.pdf',
+  });
+  // Only check for system-sourced defaults. Without this filter, any analyst-created rule on
+  // a fresh project (e.g. a force_include added during onboarding step 5) would short-circuit
+  // the default seed and leave the project with no built-in exclude/sample rules.
+  const existing = await CrawlScopeRuleModel.countDocuments({
+    projectId: pid,
+    source: 'system',
+  });
   if (existing > 0) return;
   const defaults = getDefaultScopeRules();
   await CrawlScopeRuleModel.insertMany(

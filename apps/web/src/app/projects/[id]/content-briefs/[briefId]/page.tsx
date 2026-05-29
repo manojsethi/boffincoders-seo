@@ -130,15 +130,11 @@ export default function BriefDetail({
     onError: (err) => message.error((err as Error).message),
   });
 
-  const [preferredProvider, setPreferredProvider] = useState<string | undefined>();
   const regenerate = useMutation({
     mutationFn: () =>
       api(`/projects/${id}/content-briefs/${briefId}/regenerate`, {
         method: 'POST',
-        body: JSON.stringify({
-          useAI: true,
-          preferredProvider: preferredProvider || undefined,
-        }),
+        body: JSON.stringify({ useAI: true }),
       }),
     onSuccess: () => {
       message.success('Brief regenerated');
@@ -234,30 +230,14 @@ export default function BriefDetail({
               onChange={(v) => update.mutate({ status: v })}
               style={{ minWidth: 160 }}
             />
-            <Select
-              size="middle"
-              placeholder="Default (cheap-tier)"
-              allowClear
-              value={preferredProvider}
-              onChange={(v) => setPreferredProvider(v)}
-              style={{ minWidth: 180 }}
-              options={[
-                { value: 'local', label: 'Local (llama.cpp)' },
-                { value: 'openrouter', label: 'OpenRouter (cheap)' },
-                { value: 'groq', label: 'Groq (cheap)' },
-                { value: 'openai', label: 'OpenAI (premium)' },
-                { value: 'anthropic', label: 'Anthropic (premium)' },
-              ]}
-            />
+            <span className="text-[11px] text-text-subtle whitespace-nowrap">
+              AI: Gemma 4 via OpenRouter
+            </span>
             <Button
               icon={<RefreshCw size={14} />}
               onClick={() => regenerate.mutate()}
               loading={regenerate.isPending}
-              title={
-                preferredProvider
-                  ? `Regenerate using ${preferredProvider}. Analyst-edited text preserved once status >= analyst-review.`
-                  : 'Regenerate from latest evidence using cheap-tier default. Analyst-edited text preserved once status >= analyst-review.'
-              }
+              title="Regenerate from latest evidence. Analyst-edited text preserved once status >= analyst-review."
             >
               Regenerate
             </Button>

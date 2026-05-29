@@ -1,17 +1,23 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Types } from 'mongoose';
-import { listTasks, runTask, getTask, availableProviders } from '../../ai';
+import { listTasks, runTask, getTask, isAIAvailable, AI_PROVIDER, AI_MODEL_DEFAULT } from '../../ai';
 import { AiTaskRunModel } from '../../db';
+import { loadEnv } from '../../config/env';
 
 export const aiRouter = Router();
 
-// Lists registered tasks + which providers are configured. UI uses this to gray out AI buttons
-// when no provider is available.
+// Lists registered tasks + AI availability. UI uses this to gray out AI buttons when AI is not
+// configured. Refactor 2026-05-28: single provider (OpenRouter), single pinned model.
 aiRouter.get('/ai/tasks', (_req, res) => {
+  const env = loadEnv();
   res.json({
     tasks: listTasks(),
-    providers: availableProviders(),
+    provider: AI_PROVIDER,
+    model: env.OPENROUTER_MODEL || AI_MODEL_DEFAULT,
+    available: isAIAvailable(),
+    // Back-compat: some web callers read `providers` as a list.
+    providers: isAIAvailable() ? [AI_PROVIDER] : [],
   });
 });
 
@@ -19,9 +25,6 @@ const RunSchema = z.object({
   taskKey: z.string().min(1).max(100),
   params: z.record(z.string(), z.unknown()).default({}),
   sourceIds: z.record(z.string(), z.string()).optional(),
-  preferredProvider: z
-    .enum(['openrouter', 'openai', 'groq', 'anthropic', 'local'])
-    .optional(),
 });
 
 aiRouter.post('/projects/:id/ai/run', async (req, res, next) => {
@@ -39,7 +42,6 @@ aiRouter.post('/projects/:id/ai/run', async (req, res, next) => {
       projectId: req.params.id,
       params: body.params,
       sourceIds: body.sourceIds,
-      preferredProvider: body.preferredProvider,
     });
     res.json(result);
   } catch (err) {

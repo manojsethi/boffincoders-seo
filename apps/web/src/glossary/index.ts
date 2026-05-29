@@ -548,13 +548,13 @@ const G: Record<string, GlossaryEntry> = {
     term: 'AI assistant',
     short: 'A controlled helper, not a content generator.',
     whatItIs:
-      'A small set of audit-logged AI tasks (summarize, classify intent, suggest sections, rewrite a recommendation, explain evidence). Local-first; premium models only when explicitly chosen.',
+      'A small set of audit-logged AI tasks (summarize, classify intent, suggest sections, rewrite a recommendation, explain evidence). Powered by Gemma 4 via OpenRouter — one provider, one model.',
     whyItMatters:
       'Speeds up analyst work without replacing rules or inventing facts. Every output is marked as suggested until the analyst accepts it.',
     howWeMeasure:
       'Each task call is logged with provider/model/confidence/source ids. Output schemas are validated before display.',
     whatGoodLooksLike:
-      'Cheap, on-demand suggestions an analyst can accept, edit, or dismiss. No silent writes to evidence.',
+      'On-demand suggestions an analyst can accept, edit, or dismiss. No silent writes to evidence.',
     whatToDoNext: 'Click an AI assist button on a page or recommendation. Review the suggestion, then accept or dismiss.',
   },
   'keyword-fit': {
@@ -614,6 +614,40 @@ const G: Record<string, GlossaryEntry> = {
     howWeMeasure: 'Each rule template ships with a validation method; analyst can edit.',
     whatGoodLooksLike: 'Validation matches the data source that proves the change (e.g. GSC CTR for snippet changes, re-crawl for markup).',
     whatToDoNext: 'Run the validation after the team marks the recommendation as Implemented.',
+  },
+  'max-pages': {
+    term: 'Max pages',
+    short: 'Hard cap on URLs the crawler will fetch in one run.',
+    whatItIs:
+      'Upper bound on the number of pages a crawl run fetches. Scope rules + sampling still apply on top — max-pages is only the absolute ceiling.',
+    whyItMatters:
+      'Limits crawl time + cost and prevents runaway frontier explosion on very large sites.',
+    howWeMeasure: 'Counted per crawl run.',
+    whatGoodLooksLike: 'Set high enough to cover important pages + samples, low enough to keep crawls under a few minutes.',
+    whatToDoNext: 'Light: 50. Standard: 200. Full: 2000. Custom: pick your own.',
+  },
+  'render-mode': {
+    term: 'Render mode',
+    short: 'How the crawler fetches each page.',
+    whatItIs:
+      'Cheerio-only fetches raw HTML — fast, no JS. Cheerio + Playwright fallback fetches raw HTML first, then re-renders selected pages in headless Chromium when needed. Playwright-only renders every page in Chromium.',
+    whyItMatters:
+      'JS-rendered sites need Playwright to see real content + schema. Static sites do not, and Chromium is much slower.',
+    howWeMeasure: 'Per-project crawl setting.',
+    whatGoodLooksLike: 'Default to Cheerio + Playwright fallback. Switch to Playwright-only for SPA shells.',
+    whatToDoNext: 'Pick fallback mode unless you know the site needs full render.',
+  },
+  'crawl-scope': {
+    term: 'Crawl scope',
+    short: 'Pattern rules deciding crawl / sample / exclude / force-include per URL family.',
+    whatItIs:
+      'Project-level scope rules let the analyst sample repeated sections (blog, case studies), exclude noise (tag archives, search, login), force-include important pages, and normalize tracking params.',
+    whyItMatters:
+      'Without scope, the crawler treats every URL equally — wasting budget on duplicates and creating noisy audit findings.',
+    howWeMeasure: 'Approved rules apply at crawl time. AI suggestions stay pending until analyst approves.',
+    whatGoodLooksLike:
+      'A small set of rules: sample blog/news/case-studies, exclude tag/search, force-include money pages.',
+    whatToDoNext: 'Review suggested rules + run the pre-crawl estimate before the first crawl.',
   },
   'fix-plan': {
     term: 'Fix plan',

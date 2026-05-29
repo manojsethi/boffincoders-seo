@@ -8,7 +8,7 @@ const KeywordSchema = new Schema(
   {
     projectId: { type: Types.ObjectId, required: true, index: true },
     keyword: { type: String, required: true },
-    source: { type: String, enum: ['manual', 'gsc', 'ai', 'import', 'external'], default: 'manual' },
+    source: { type: String, enum: ['manual', 'gsc', 'ai', 'import', 'external', 'onboarding'], default: 'manual' },
     intent: {
       type: String,
       enum: ['informational', 'commercial', 'transactional', 'navigational', 'local', 'support', 'unknown'],

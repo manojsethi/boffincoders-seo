@@ -53,7 +53,11 @@ const SUGGESTED_SAMPLE: DefaultRule[] = [
   { name: 'Category archives', pattern: '/category/**', patternType: 'glob', behavior: 'sample', sampleLimit: 5, priority: 50, groupName: 'Category archives', pageFamily: 'collection', reason: 'Category listings — sample.', status: 'suggested' },
 ];
 
-const ASSET_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'pdf', 'zip', 'css', 'js', 'woff', 'woff2'];
+// Note: PDF intentionally excluded from this list. Doc 12 §"PDFs are different" — PDFs may be
+// primary content for NGO/education/government/legal/research sites, so analyst must opt in via
+// onboarding step 6 (sample/exclude/crawl). Without this carve-out, the high-priority system
+// exclude would override any analyst-set PDF rule.
+const ASSET_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'zip', 'css', 'js', 'woff', 'woff2'];
 
 const ASSET_EXCLUDES: DefaultRule[] = ASSET_EXTS.map((ext) => ({
   name: `Asset .${ext}`,

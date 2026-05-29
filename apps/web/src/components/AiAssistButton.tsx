@@ -24,8 +24,11 @@ type TaskResult = {
 };
 
 type TasksMeta = {
-  tasks: Array<{ key: string; label: string; description: string; tier: string; riskLevel: string }>;
+  tasks: Array<{ key: string; label: string; description: string; riskLevel: string }>;
   providers: string[];
+  provider?: string;
+  model?: string;
+  available?: boolean;
 };
 
 export function AiAssistButton({
@@ -69,7 +72,7 @@ export function AiAssistButton({
       setResult(r);
       setOpen(true);
       if (r.status === 'unavailable') {
-        message.warning('AI is not configured. Set a provider key in env.');
+        message.warning('AI is not configured. Set OPENROUTER_API_KEY in env.');
       } else if (r.status === 'failed') {
         message.error(r.error ?? 'AI task failed');
       }
@@ -104,7 +107,7 @@ export function AiAssistButton({
   const buttonLabel = label ?? task?.label ?? 'AI assist';
   const disabled = !aiAvailable || !task;
   const reason = !aiAvailable
-    ? 'No AI provider configured. Set OPENROUTER_API_KEY / OPENAI_API_KEY / GROQ_API_KEY / AI_LOCAL_MODEL_URL in env.'
+    ? 'AI is not configured. Set OPENROUTER_API_KEY to enable AI features.'
     : !task
       ? 'Task not registered'
       : undefined;
@@ -143,7 +146,7 @@ export function AiAssistButton({
           <div className="flex items-start gap-2 text-sm text-amber-300">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
             <div>
-              AI is not configured for this environment. Set a provider key in <code>.env</code> to
+              AI is not configured. Set <code>OPENROUTER_API_KEY</code> in <code>.env</code> to
               enable assist features. Backend stays usable; only AI-assisted suggestions are
               unavailable.
             </div>

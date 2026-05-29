@@ -4,37 +4,34 @@
 //   - task registry (typed input/output)
 //   - prompt template + version
 //   - schema validation of model output
-//   - cost/risk tier policy (local-first for low-risk, premium only when explicitly requested)
 //   - audit log via AiTaskRunModel
-//   - graceful "unavailable" response when no provider configured
+//   - graceful "unavailable" response when OpenRouter is not configured
 //
-// All AI features call this service. No direct routeAI() calls outside this module.
+// All AI features call this service. Underlying transport is `ai-service.runAICompletion()`
+// pinned to OpenRouter + `google/gemma-4-31b-it`.
 
 import { Types } from 'mongoose';
 import { z, type ZodTypeAny, type ZodSchema } from 'zod';
 import { AiTaskRunModel } from '../db';
-import { availableProviders, routeAI } from './router';
-import type { AIProvider } from './types';
+import { runAICompletion, isAIAvailable, AI_PROVIDER } from './ai-service';
 import { getLogger } from '../config/logger';
 
 const log = getLogger('ai:task-service');
 
-export type TaskTier = 'cheap' | 'premium';
+// Risk tag kept on tasks for audit + UI. No longer drives provider routing.
 export type TaskRisk = 'low' | 'medium' | 'high';
 
 export type TaskRunInput<TParams> = {
   projectId: string;
   params: TParams;
   sourceIds?: Record<string, string>;
-  // Force a specific provider (analyst override). Otherwise router picks per tier.
-  preferredProvider?: AIProvider;
 };
 
 export type TaskResult<TOutput> = {
   id: string;
   taskKey: string;
   status: 'completed' | 'failed' | 'unavailable';
-  provider?: AIProvider;
+  provider?: typeof AI_PROVIDER;
   model?: string;
   output: TOutput | null;
   confidence: number;
@@ -53,7 +50,6 @@ export type AITask<TParams, TOutput> = {
   description: string;
   affects: string[];
   riskLevel: TaskRisk;
-  tier: TaskTier;
   promptTemplateVersion: string;
   maxInputChars: number;
   maxOutputTokens: number;
@@ -77,7 +73,6 @@ export function listTasks(): Array<{
   description: string;
   affects: string[];
   riskLevel: TaskRisk;
-  tier: TaskTier;
   needsAnalystReview: boolean;
 }> {
   return Object.values(TASKS).map((t) => ({
@@ -86,7 +81,6 @@ export function listTasks(): Array<{
     description: t.description,
     affects: t.affects,
     riskLevel: t.riskLevel,
-    tier: t.tier,
     needsAnalystReview: t.needsAnalystReview,
   }));
 }
@@ -96,8 +90,8 @@ export function getTask(key: string): AITask<unknown, unknown> | null {
 }
 
 /**
- * Public entry point for every AI call. Audit-logged, schema-validated, graceful when no provider
- * is configured.
+ * Public entry point for every AI call. Audit-logged, schema-validated, graceful when no
+ * provider is configured.
  */
 export async function runTask<TParams, TOutput>(
   key: string,
@@ -119,8 +113,7 @@ export async function runTask<TParams, TOutput>(
   });
 
   // No provider configured → graceful unavailable, no throw.
-  const providers = availableProviders();
-  if (providers.length === 0) {
+  if (!isAIAvailable()) {
     const finishedAt = new Date();
     await AiTaskRunModel.updateOne(
       { _id: runDoc._id },
@@ -130,7 +123,7 @@ export async function runTask<TParams, TOutput>(
           schemaValidationStatus: 'not-run',
           finishedAt,
           durationMs: finishedAt.getTime() - startedAt.getTime(),
-          warnings: ['No AI provider configured. Set OPENROUTER_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or AI_LOCAL_MODEL_URL.'],
+          warnings: ['No AI provider configured. Set OPENROUTER_API_KEY to enable AI.'],
         },
       },
     );
@@ -152,7 +145,10 @@ export async function runTask<TParams, TOutput>(
   const { system, user } = task.buildPrompt(input.params);
   if (user.length > task.maxInputChars) {
     // Truncate hard rather than throw — model would refuse oversized input anyway.
-    log.warn({ task: task.key, inputLen: user.length, max: task.maxInputChars }, 'truncating prompt');
+    log.warn(
+      { task: task.key, inputLen: user.length, max: task.maxInputChars },
+      'truncating prompt',
+    );
   }
   const truncatedUser =
     user.length > task.maxInputChars
@@ -160,25 +156,17 @@ export async function runTask<TParams, TOutput>(
       : user;
 
   try {
-    const res = await routeAI(
-      {
-        systemPrompt: system,
-        userPrompt: truncatedUser,
-        json: true,
-        maxOutputTokens: task.maxOutputTokens,
-        temperature: 0.2,
-        tier: task.tier,
-      },
-      {
-        provider: input.preferredProvider,
-        allowFallback: true,
-      },
-    );
+    const res = await runAICompletion({
+      systemPrompt: system,
+      userPrompt: truncatedUser,
+      json: true,
+      maxOutputTokens: task.maxOutputTokens,
+      temperature: 0.2,
+    });
 
     // Parse JSON output + validate against schema. Each failure mode is recorded distinctly so
     // analyst can tell a model JSON glitch from a schema drift. Always persist provider/model
-    // up-front — local model debugging needs that even when parsing later fails. Audit
-    // 2026-05-20 follow-up.
+    // up-front so debugging works even when parsing later fails.
     const baseFailMeta = {
       provider: res.provider,
       model: res.model,

@@ -146,7 +146,6 @@ const CreateSchema = z.object({
   keywordId: z.string(),
   pageId: z.string().optional(),
   useAI: z.boolean().optional().default(true),
-  preferredProvider: z.enum(['openrouter', 'openai', 'groq', 'anthropic', 'local']).optional(),
   newVersion: z.boolean().optional().default(false),
 });
 contentBriefsRouter.post('/projects/:id/content-briefs', async (req, res, next) => {
@@ -174,7 +173,6 @@ contentBriefsRouter.post('/projects/:id/content-briefs', async (req, res, next) 
       keywordId: body.keywordId,
       pageId: body.pageId,
       useAI: body.useAI,
-      preferredProvider: body.preferredProvider,
       version,
     });
     res.status(201).json(result);
@@ -250,7 +248,6 @@ contentBriefsRouter.patch('/projects/:id/content-briefs/:briefId', async (req, r
 
 const RegenSchema = z.object({
   useAI: z.boolean().optional().default(true),
-  preferredProvider: z.enum(['openrouter', 'openai', 'groq', 'anthropic', 'local']).optional(),
 });
 contentBriefsRouter.post('/projects/:id/content-briefs/:briefId/regenerate', async (req, res, next) => {
   try {
@@ -275,7 +272,6 @@ contentBriefsRouter.post('/projects/:id/content-briefs/:briefId/regenerate', asy
       keywordId: String(existing.keywordId),
       pageId: existing.pageId ? String(existing.pageId) : undefined,
       useAI: body.useAI,
-      preferredProvider: body.preferredProvider,
       version: existing.version,
     });
     res.json(result);

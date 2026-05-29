@@ -79,6 +79,7 @@ Read and execute in this order:
 9. `09-authentication-last.md`
 10. `10-navigation-project-workflow-archive-reset.md`
 11. `11-crawl-scope-rules-url-pattern-grouping.md`
+12. `12-project-onboarding-intent-first-flow.md`
 
 ## Do Not Build Yet
 

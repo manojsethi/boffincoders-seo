@@ -65,6 +65,12 @@ const RuleSchema = z.object({
   normalizeStripParams: z.array(z.string().max(60)).optional(),
 });
 
+// Patterns that represent internal crawler hygiene (static assets) and should not appear in the
+// analyst-facing scope table. Doc 12 §"Step 6 — Crawl Scope Rules": "Do not show internal
+// crawler guards". The rule rows still exist in Mongo so the crawler honors them; the API
+// hides them unless the caller passes `?includeAssets=1`.
+const ASSET_PATTERN_RE = /\*\*\/\*\.(css|js|jpg|jpeg|png|gif|svg|webp|woff|woff2|ico|map|mjs)$/i;
+
 crawlScopeRouter.get('/projects/:id/crawl-scope/rules', async (req, res, next) => {
   try {
     if (!Types.ObjectId.isValid(req.params.id)) {
@@ -79,7 +85,14 @@ crawlScopeRouter.get('/projects/:id/crawl-scope/rules', async (req, res, next) =
     const rules = await CrawlScopeRuleModel.find(q)
       .sort({ priority: -1, name: 1 })
       .lean();
-    res.json(rules.map(shapeRule));
+    const includeAssets =
+      req.query.includeAssets === '1' || req.query.includeAssets === 'true';
+    const shown = includeAssets
+      ? rules
+      : rules.filter(
+          (r) => !(r.source === 'system' && ASSET_PATTERN_RE.test(r.pattern ?? '')),
+        );
+    res.json(shown.map(shapeRule));
   } catch (err) {
     next(err);
   }
@@ -376,9 +389,6 @@ crawlScopeRouter.get('/projects/:id/crawl-scope/candidates', async (req, res, ne
 // — never silently applied.
 const SuggestSchema = z.object({
   seedUrl: z.string().url().optional(),
-  preferredProvider: z
-    .enum(['openrouter', 'openai', 'groq', 'anthropic', 'local'])
-    .optional(),
 });
 crawlScopeRouter.post('/projects/:id/crawl-scope/ai-suggest', async (req, res, next) => {
   try {
@@ -425,7 +435,6 @@ crawlScopeRouter.post('/projects/:id/crawl-scope/ai-suggest', async (req, res, n
         candidateGroups,
         existingRules,
       },
-      preferredProvider: body.preferredProvider,
     });
     if (result.status !== 'completed' || !result.output) {
       res.status(502).json({

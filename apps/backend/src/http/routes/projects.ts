@@ -390,6 +390,10 @@ function toDTO(p: Record<string, unknown>): Record<string, unknown> {
     lastAuditedAt: p.lastAuditedAt ?? null,
     lastReportedAt: p.lastReportedAt ?? null,
     nextScheduledRunAt: p.nextScheduledRunAt ?? null,
+    onboardingState: (p.onboardingState as Record<string, unknown> | undefined) ?? {
+      currentStep: 1,
+      completedSteps: [],
+    },
     crawlScopeSettings: (p.crawlScopeSettings as Record<string, unknown> | undefined) ?? {
       enabled: true,
       defaultBehavior: 'crawl',

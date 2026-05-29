@@ -26,7 +26,6 @@ export async function generateContentBrief(opts: {
   keywordId: string;
   pageId?: string;
   useAI?: boolean;
-  preferredProvider?: 'openrouter' | 'openai' | 'groq' | 'anthropic' | 'local';
   version?: number;
 }): Promise<{ id: string; created: boolean; status: string; dataGaps: string[] }> {
   const pid = new Types.ObjectId(opts.projectId);
@@ -210,7 +209,6 @@ export async function generateContentBrief(opts: {
       projectId: opts.projectId,
       params: briefInput,
       sourceIds: { keywordId: String(keyword._id), pageId: pageId ?? '' },
-      preferredProvider: opts.preferredProvider,
     });
     aiTaskRunIds.push(new Types.ObjectId(draftResult.id));
     if (draftResult.status === 'completed' && draftResult.output) {

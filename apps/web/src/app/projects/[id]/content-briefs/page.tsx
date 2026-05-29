@@ -194,7 +194,7 @@ export default function ContentBriefsList({
             ) : null}
           </div>
           <p className="text-[11px] text-text-subtle">
-            AI assist runs automatically using the cheap-tier model. Output is structural — no full
+            AI assist uses Gemma 4 via OpenRouter. Output is structural — no full
             content writing. Brief is created as <code>draft</code> and is editable.
           </p>
         </div>

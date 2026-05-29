@@ -70,6 +70,48 @@ const ProjectSchema = new Schema(
       ),
       default: () => ({}),
     },
+    // Phase 12. Onboarding state. Stored on Project to avoid a parallel model. Tracks step
+    // progress + lightweight objective + analyst notes. Once `completedAt` is set, the project
+    // shell stops gating navigation through onboarding.
+    onboardingState: {
+      type: new Schema(
+        {
+          currentStep: { type: Number, default: 1 },
+          completedSteps: { type: [Number], default: [] },
+          completedAt: { type: Date },
+          startedAt: { type: Date, default: () => new Date() },
+          // Lightweight objective (later promoted to Goals).
+          primaryObjective: { type: String, default: '' },
+          secondaryObjectives: { type: [String], default: [] },
+          objectiveNotes: { type: String, default: '' },
+          // Profile draft fields captured during step 2 (mirror what WebsiteProfile stores).
+          websiteType: { type: String, default: '' },
+          websiteTypeCustom: { type: String, default: '' },
+          websiteDescription: { type: String, default: '' },
+          primaryAudience: { type: String, default: '' },
+          country: { type: String, default: '' },
+          primaryLanguage: { type: String, default: '' },
+          // Snapshot of seed-keyword + important-page counts so the review step doesn't refetch.
+          seedKeywordCount: { type: Number, default: 0 },
+          importantPageCount: { type: Number, default: 0 },
+          crawlPreset: {
+            type: String,
+            enum: ['light', 'standard', 'full', 'custom'],
+            default: 'standard',
+          },
+          maxPages: { type: Number, default: 200 },
+          skipIntegrations: { type: Boolean, default: false },
+          handleDocuments: {
+            type: String,
+            enum: ['crawl', 'sample', 'exclude'],
+            default: 'sample',
+          },
+          notes: { type: String, default: '' },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
     lastCrawledAt: { type: Date },
     lastAuditedAt: { type: Date },
     lastReportedAt: { type: Date },

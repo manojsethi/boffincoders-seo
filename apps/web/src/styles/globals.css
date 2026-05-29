@@ -198,3 +198,9 @@ body {
   width: 56px;
   flex-basis: 56px;
 }
+
+/* AntD popover: light border across all popovers for cleaner separation from page background.
+   Targets both the InfoIcon glossary popover (.seo-info-popover) and any default popover. */
+.ant-popover-inner {
+  border: 1px solid var(--c-border) !important;
+}

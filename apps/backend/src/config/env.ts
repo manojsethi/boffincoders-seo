@@ -17,18 +17,14 @@ const EnvSchema = z.object({
   CRAWL4AI_URL: z.string().default('http://localhost:11235'),
   CRAWL4AI_API_TOKEN: z.string().optional().default(''),
 
-  AI_DEFAULT_PROVIDER: z.enum(['openrouter', 'groq', 'openai', 'anthropic', 'local']).default('openrouter'),
-  AI_LOCAL_MODEL_URL: z.string().optional().default(''),
-  AI_LOCAL_MODEL_NAME: z.string().default('llama3.1'),
-  AI_MONTHLY_BUDGET_USD: z.coerce.number().default(50),
+  // AI configuration. Refactor 2026-05-28: single OpenRouter provider, single pinned model.
+  // Multi-provider / multi-tier env vars (AI_DEFAULT_PROVIDER, AI_LOCAL_MODEL_*, OPENAI/GROQ/
+  // ANTHROPIC keys, OPENROUTER_MODEL_CHEAP/PREMIUM) have been removed.
   OPENROUTER_API_KEY: z.string().optional().default(''),
-  OPENROUTER_MODEL_CHEAP: z.string().default('meta-llama/llama-3.3-70b-instruct'),
-  OPENROUTER_MODEL_PREMIUM: z.string().default('anthropic/claude-3.5-sonnet'),
+  OPENROUTER_MODEL: z.string().default('google/gemma-4-31b-it'),
   OPENROUTER_REFERER: z.string().optional().default('http://localhost:7011'),
   OPENROUTER_APP_NAME: z.string().optional().default('Boffin SEO v2'),
-  OPENAI_API_KEY: z.string().optional().default(''),
-  GROQ_API_KEY: z.string().optional().default(''),
-  ANTHROPIC_API_KEY: z.string().optional().default(''),
+  AI_MONTHLY_BUDGET_USD: z.coerce.number().default(50),
 
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),

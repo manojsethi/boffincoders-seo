@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Drawer, Popover, Tooltip } from 'antd';
 import { useQuery } from '@tanstack/react-query';
@@ -57,6 +57,10 @@ type ProjectSummary = {
   primaryDomain: string;
   archivedAt: string | null;
   archivedReason: string | null;
+  onboardingState?: {
+    completedAt?: string | null;
+    currentStep?: number;
+  };
 };
 
 type Item = {
@@ -295,6 +299,19 @@ export function ProjectShell({
     queryFn: () => api<ProjectSummary>(`/projects/${projectId}`),
   });
 
+  // Phase 12. Onboarding gate. If onboarding hasn't been completed, redirect every project
+  // route (except the wizard itself) to /onboarding so the analyst finishes setup before
+  // landing on module-heavy dashboards.
+  const router = useRouter();
+  useEffect(() => {
+    if (!project) return;
+    const onboardingComplete = !!project.onboardingState?.completedAt;
+    if (onboardingComplete) return;
+    if (rawPathname.endsWith('/onboarding')) return;
+    if (rawPathname.endsWith('/settings/danger-zone')) return; // allow archive/restore even mid-onboarding
+    router.replace(`/projects/${projectId}/onboarding`);
+  }, [project, rawPathname, projectId, router]);
+
   // Hydrate persisted UI state.
   useEffect(() => {
     try {
@@ -408,6 +425,20 @@ export function ProjectShell({
       </div>
     </div>
   );
+
+  // Hide the full module sidebar while onboarding is in progress — analyst should see the
+  // wizard, not a stack of empty dashboards. Doc 12 §"Do not show every module name during
+  // onboarding".
+  const onboardingComplete = !!project?.onboardingState?.completedAt;
+  const onboardingActive = !onboardingComplete && rawPathname.endsWith('/onboarding');
+
+  if (onboardingActive) {
+    return (
+      <div className="flex-1 min-w-0">
+        <main className="mx-auto w-full max-w-[1320px] px-4 md:px-8 py-6">{children}</main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)]">
@@ -537,16 +568,18 @@ function SidebarNav({
                             className={cn(
                               'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
                               isActive
-                                ? 'bg-accent-soft text-text'
+                                ? 'font-semibold'
                                 : 'text-text-muted hover:bg-surface-hover hover:text-text',
                             )}
+                            style={
+                              isActive
+                                ? { background: 'var(--c-accent)', color: '#ffffff' }
+                                : undefined
+                            }
                           >
                             <Icon
                               size={14}
-                              className={cn(
-                                'shrink-0',
-                                isActive ? 'text-accent-hover' : 'text-text-subtle',
-                              )}
+                              className={cn('shrink-0', !isActive && 'text-text-subtle')}
                             />
                             <span className="truncate">{it.label}</span>
                           </Link>
@@ -562,10 +595,11 @@ function SidebarNav({
                 aria-label={g.label}
                 className={cn(
                   'w-full grid place-items-center rounded-md py-2 transition-colors',
-                  groupIsActive
-                    ? 'bg-accent-soft text-text'
-                    : 'text-text-subtle hover:bg-surface-hover hover:text-text',
+                  !groupIsActive && 'text-text-subtle hover:bg-surface-hover hover:text-text',
                 )}
+                style={
+                  groupIsActive ? { background: 'var(--c-accent)', color: '#ffffff' } : undefined
+                }
               >
                 <GroupIcon size={16} />
               </button>
@@ -609,16 +643,23 @@ function SidebarNav({
                         className={cn(
                           'group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors',
                           isActive
-                            ? 'bg-accent-soft text-text'
+                            ? 'font-semibold shadow-md'
                             : 'text-text-muted hover:bg-surface-hover hover:text-text',
                         )}
+                        style={
+                          isActive
+                            ? {
+                                background: 'var(--c-accent)',
+                                color: '#ffffff',
+                                borderLeft: '4px solid var(--c-accent-hover)',
+                                paddingLeft: '8px',
+                              }
+                            : undefined
+                        }
                       >
                         <Icon
                           size={14}
-                          className={cn(
-                            'shrink-0',
-                            isActive ? 'text-accent-hover' : 'text-text-subtle',
-                          )}
+                          className={cn('shrink-0', !isActive && 'text-text-subtle')}
                         />
                         <span className="truncate">{it.label}</span>
                       </Link>
